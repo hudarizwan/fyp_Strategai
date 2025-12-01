@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+
 from app.api.scraper import router as scraper_router
+
 # from app.api.nlp import router as nlp_router
 # from app.api.analytics import router as analytics_router
 

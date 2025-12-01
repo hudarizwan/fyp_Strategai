@@ -3,6 +3,9 @@ from pydantic import BaseModel
 from typing import List, Dict, Any
 from app.services.scraper_service import scrape_product_platforms
 
+
+
+
 router = APIRouter()
 
 # --------------------------
@@ -10,6 +13,7 @@ router = APIRouter()
 # --------------------------
 class ScrapeRequest(BaseModel):
     product_name: str
+    moq: int | None = None      # ✅ User can send MOQ (optional)
 
 # --------------------------
 #   Response Models
@@ -31,7 +35,7 @@ class RetailItem(BaseModel):
 
 class ScrapeResponse(BaseModel):
     product_name: str
-    links_used: Dict[str, str]       # <-- REQUIRED FIELD
+    links_used: Dict[str, str]
     wholesale: List[WholesaleItem]
     retail: List[RetailItem]
 
@@ -42,6 +46,10 @@ class ScrapeResponse(BaseModel):
 def start_scrape(req: ScrapeRequest):
     """
     Module 1: Scraper Agent
-    Returns REAL scraped data from PK retailers + wholesale sources.
+    PK Retailers + Wholesale (MOQ-aware Made-in-China)
     """
-    return scrape_product_platforms(req.product_name)
+    result = scrape_product_platforms(
+        product_name=req.product_name,
+        moq=req.moq                    # ✅ PASS MOQ to service layer
+    )
+    return result
