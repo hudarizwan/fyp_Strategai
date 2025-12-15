@@ -7,7 +7,8 @@ from urllib.parse import quote_plus, urljoin
 
 import requests
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright  # type: ignore
+from playwright.sync_api import sync_playwright
+
 
 # ---------------------------------
 #   HTTP helper + constants
@@ -49,6 +50,7 @@ def _clean_price_to_float(text: str) -> Optional[float]:
     if not text:
         return None
 
+    # remove non-breaking space
     text = text.replace("\xa0", " ")
 
     m = re.search(r"([\d.,]+)", text)
@@ -62,7 +64,7 @@ def _clean_price_to_float(text: str) -> Optional[float]:
 
 
 # ---------------------------------------------------------
-#   STRICT PRODUCT NAME MATCHING (generic)
+#   STRICT PRODUCT NAME MATCHING
 # ---------------------------------------------------------
 def _matches_product_name(title: str, query: str) -> bool:
     if not title:
@@ -111,7 +113,7 @@ def scrape_mic_product_page(url: str) -> Optional[Dict[str, Any]]:
     offers = ld.get("offers") or {}
 
     # price
-    price: Optional[float] = None
+    price = None
     currency = offers.get("priceCurrency")
     try:
         raw = offers.get("price")
@@ -163,7 +165,7 @@ def _extract_listing_moq_and_attrs(card_text: str) -> Dict[str, Any]:
     listing_moq = _extract_moq_from_text(card_text)
 
     attrs: Dict[str, str] = {}
-    for m in re.finditer(r"([A-Za-z][A-Za-z /&\\-]{1,30})\\s*:\\s*([^:]+)", card_text):
+    for m in re.finditer(r"([A-Za-z][A-Za-z /&\-]{1,30})\s*:\s*([^:]+)", card_text):
         attrs[m.group(1).strip()] = m.group(2).strip()
 
     return {"moq": listing_moq, "attributes": attrs}
@@ -171,9 +173,7 @@ def _extract_listing_moq_and_attrs(card_text: str) -> Dict[str, Any]:
 
 def _find_mic_product_urls_from_search(product_name: str) -> Dict[str, Any]:
     q = quote_plus(product_name)
-    search_url = (
-        f"https://www.made-in-china.com/productdirectory.do?word={q}&subaction=hunt"
-    )
+    search_url = f"https://www.made-in-china.com/productdirectory.do?word={q}&subaction=hunt"
 
     soup = _fetch_html(search_url)
     if not soup:
@@ -216,9 +216,7 @@ def _find_mic_product_urls_from_search(product_name: str) -> Dict[str, Any]:
     }
 
 
-def _should_accept_candidate(
-    new: Dict[str, Any], existing: List[Dict[str, Any]]
-) -> bool:
+def _should_accept_candidate(new: Dict[str, Any], existing: List[Dict[str, Any]]) -> bool:
     """
     MIC candidate de-dup logic.
     """
@@ -228,10 +226,7 @@ def _should_accept_candidate(
             return False
 
         # same supplier + same unit price
-        if (
-            new["supplier"] == old["supplier"]
-            and new["unit_price"] == old["unit_price"]
-        ):
+        if new["supplier"] == old["supplier"] and new["unit_price"] == old["unit_price"]:
             return False
 
         # same price + same MOQ (both known)
@@ -284,7 +279,7 @@ def scrape_mic_wholesale_for_product(
 
         best_moq = detail_moq or listing_moq or 0
 
-        # optional MOQ filter
+        # optional MOQ filter (abhi user se moq nahi aa raha, default None)
         if moq is not None and best_moq > moq:
             continue
 
@@ -297,6 +292,7 @@ def scrape_mic_wholesale_for_product(
             "unit_price": float(price),
             "unit_price_pkr": _usd_to_pkr(price),
             "currency": detail["price"]["currency"] or "USD",
+            "lead_time": "7–14d",
             "origin": supplier.get("location") or "CN",
             "source_url": url,
             "attributes_listing": listing_attrs,
@@ -328,25 +324,26 @@ def scrape_telemart(product_name: str) -> List[Dict[str, Any]]:
     if not soup:
         return []
 
-    results: List[Dict[str, Any]] = []
+    results = []
 
     cards = soup.select("div.product-wrapper")
 
     for card in cards:
         title_el = card.select_one("h3.product-title a")
-        price_el = card.select_one("span.price-new") or card.select_one(
-            "span.price-old"
-        )
+        price_el = card.select_one("span.price-new") or card.select_one("span.price-old")
 
         if not title_el or not price_el:
             continue
 
         title = title_el.get_text(strip=True)
+        if not _matches_product_name(title, product_name):
+            continue
+
         price = _clean_price_to_float(price_el.get_text(strip=True))
         if price is None:
             continue
 
-        href = title_el.get("href") or ""
+        href = title_el.get("href")
         if href.startswith("/"):
             href = "https://telemart.pk" + href
 
@@ -372,25 +369,26 @@ def scrape_homeshopping(product_name: str) -> List[Dict[str, Any]]:
     if not soup:
         return []
 
-    results: List[Dict[str, Any]] = []
+    results = []
 
     cards = soup.select("div.hs-product-card")
 
     for card in cards:
         title_el = card.select_one("h2.product-name a")
-        price_el = card.select_one("span.price-new") or card.select_one(
-            "span.price-old"
-        )
+        price_el = card.select_one("span.price-new") or card.select_one("span.price-old")
 
         if not title_el or not price_el:
             continue
 
         title = title_el.get_text(strip=True)
+        if not _matches_product_name(title, product_name):
+            continue
+
         price = _clean_price_to_float(price_el.get_text(strip=True))
         if price is None:
             continue
 
-        href = title_el.get("href") or ""
+        href = title_el.get("href")
         if href.startswith("/"):
             href = "https://www.homeshopping.pk" + href
 
@@ -416,7 +414,7 @@ def scrape_mega_pk(product_name: str) -> List[Dict[str, Any]]:
     if not soup:
         return []
 
-    results: List[Dict[str, Any]] = []
+    results = []
 
     cards = soup.select("div.product_wrap")
 
@@ -428,11 +426,14 @@ def scrape_mega_pk(product_name: str) -> List[Dict[str, Any]]:
             continue
 
         title = title_el.get_text(strip=True)
+        if not _matches_product_name(title, product_name):
+            continue
+
         price = _clean_price_to_float(price_el.get_text(strip=True))
         if price is None:
             continue
 
-        href = title_el.get("href") or ""
+        href = title_el.get("href")
         if href.startswith("/"):
             href = "https://www.mega.pk" + href
 
@@ -456,16 +457,19 @@ def scrape_mega_pk(product_name: str) -> List[Dict[str, Any]]:
 def _parse_daraz_price(text: str) -> float:
     if not text:
         return 0.0
-    cleaned = text.replace("Rs.", "").replace("Rs", "").replace(",", "").strip()
+    cleaned = (
+        text.replace("Rs.", "")
+        .replace("Rs", "")
+        .replace(",", "")
+        .strip()
+    )
     try:
         return float(cleaned)
     except Exception:
         return 0.0
 
 
-def scrape_daraz_listing(
-    product_name: str, max_items: int = 5
-) -> Tuple[List[Dict[str, Any]], str]:
+def scrape_daraz_listing(product_name: str, max_items: int = 5) -> Tuple[List[Dict[str, Any]], str]:
     q = quote_plus(product_name)
     search_url = f"https://www.daraz.pk/catalog/?q={q}"
 
@@ -488,6 +492,10 @@ def scrape_daraz_listing(
                 continue
 
             title = title_el.inner_text().strip()
+            # apply same strict constraint if you want
+            # if not _matches_product_name(title, product_name):
+            #     continue
+
             url = title_el.get_attribute("href") or ""
             if url.startswith("//"):
                 url = "https:" + url
@@ -508,9 +516,104 @@ def scrape_daraz_listing(
     return results, search_url
 
 
-# =====================================================================
-#                 CONSTRAINTS (product_name + category)
-# =====================================================================
+def scrape_daraz_product(url: str) -> Dict[str, Any]:
+    data: Dict[str, Any] = {}
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, wait_until="networkidle")
+        page.wait_for_timeout(3000)
+
+        def safe(selector: str) -> str:
+            try:
+                el = page.query_selector(selector)
+                return el.inner_text().strip() if el else ""
+            except:
+                return ""
+
+        # -------------------------
+        # BASIC FIELDS
+        # -------------------------
+        data["title"] = safe("h1.pdp-mod-product-badge-title")
+        data["price_sale"] = safe("span.pdp-price_type_normal")
+        data["price_original"] = safe("span.pdp-price_type_deleted")
+        data["rating"] = safe("div.pdp-mod-rating span")
+        data["rating_count"] = safe("a.pdp-review-summary__link") or safe("div.pdp-review-summary a")
+
+        data["brand"] = safe("a.pdp-product-brand__brand-link")
+
+        # -------------------------------------------------
+        # SELLER NAME (this is the new selector)
+        # -------------------------------------------------
+        data["seller_name"] = (
+            safe("div.seller-name__detail-name a")
+            or safe("a.seller-name__detail-name__wrapper")
+            or safe("div.pdp-seller-info__seller-name")
+        )
+
+        # Seller rating %
+        data["seller_rating"] = safe("div.seller-info-value")
+
+        # -------------------------------------------------
+        # DELIVERY INFO
+        # -------------------------------------------------
+        data["delivery_city"] = safe("span.delivery-location__address") or safe("div.delivery-option-item__location")
+        data["delivery_cost"] = safe("div.delivery-option-item__shipping-fee")
+
+        # -------------------------------------------------
+        # WARRANTY
+        # -------------------------------------------------
+        data["warranty"] = (
+            safe("div.pdp-product-warranty span")
+            or safe("div.warranty__content")
+            or safe("div.pdp-mod-warranty span")
+        )
+
+        # -------------------------------------------------
+        # RETURN POLICY
+        # -------------------------------------------------
+        data["return_policy"] = (
+            safe("div.return-text")
+            or safe("div.pdp-return-policy")
+            or safe("div.return-policy-text")
+        )
+
+        # -------------------------------------------------
+        # IMAGES
+        # -------------------------------------------------
+        try:
+            imgs = []
+            nodes = page.query_selector_all("img.pdp-mod-common-image")
+            for img in nodes:
+                src = img.get_attribute("src")
+                if src:
+                    imgs.append(src)
+            data["images"] = imgs
+        except:
+            data["images"] = []
+
+        # -------------------------------------------------
+        # SPECIFICATIONS (KEY : VALUE LIST)
+        # -------------------------------------------------
+        specs = []
+        try:
+            rows = page.query_selector_all("div.pdp-general-features table tr")
+            for row in rows:
+                cols = row.query_selector_all("td")
+                if len(cols) == 2:
+                    key = cols[0].inner_text().strip()
+                    val = cols[1].inner_text().strip()
+                    specs.append({key: val})
+        except:
+            pass
+
+        data["specifications"] = specs
+
+        browser.close()
+
+    return data
+
 def strict_name_match(title: str, product_name: str) -> bool:
     """
     Full strict phrase check.
@@ -526,89 +629,39 @@ def category_match(title: str, category: str) -> bool:
     """
     return category.lower() in title.lower()
 
-def is_accessory(title: str, product_name: str, category: str) -> bool:
-    """
-    Generic accessory detection WITHOUT hardcoded lists.
-    Returns True ONLY when we are confident it's an accessory.
-    """
 
+def is_accessory(title: str, category: str) -> bool:
+    """
+    If product contains model but not category, or contains accessory hints → reject.
+    """
     t = title.lower()
-    p = product_name.lower()
     c = category.lower()
 
-    # normalize
-    t_clean = re.sub(r"[^a-z0-9 ]+", " ", t)
-    words = t_clean.split()
-
-    # -------------------------------------------------
-    # RULE 0 (MOST IMPORTANT)
-    # If full product name is present → NEVER accessory
-    # -------------------------------------------------
-    if p in t_clean:
-        return False
-
-    # -------------------------------------------------
-    # RULE 1: dependency grammar → accessory
-    # -------------------------------------------------
-    dependency_patterns = [
-        r"\bfor\b",
-        r"\bcompatible with\b",
-        r"\breplacement\b",
-        r"\bspare\b",
-        r"\baccessory\b",
-    ]
-
-    for pattern in dependency_patterns:
-        if re.search(pattern, t_clean):
-            return True
-
-    # -------------------------------------------------
-    # RULE 2: category role check
-    # Category must be an EARLY noun
-    # -------------------------------------------------
-    if c in words:
-        idx = words.index(c)
-
-        # category too late → usually "X for headset"
-        if idx > 4:
-            return True
-    else:
-        # category not present → BUT product name already checked above
-        # so yahan reject nahi karenge
-        return False
-
-    # -------------------------------------------------
-    # RULE 3: product-name dominance
-    # If title has more words than product_name by a lot
-    # → likely accessory
-    # -------------------------------------------------
-    product_words = p.split()
-    if len(words) - len(product_words) >= 5:
+    # If category missing, likely accessory
+    if c not in t:
         return True
 
-    return False  # primary product
+    accessory_words = [
+        "pad", "pads", "cushion", "foam", "earpad", "replace", "replacement",retail.append(item)
+        "cable", "wire", "cover", "shell", "sticker", "skin", "adapter"
+    ]
 
-def passes_all_constraints(
-    item: Dict[str, Any], product_name: str, category: str
-) -> bool:
+    return any(w in t for w in accessory_words)
+def passes_all_constraints(item, product_name, category):
+    title = item["title"].lower()
 
-    title = (item.get("title") or "").lower()
-    if not title:
-        return False
-
-    # 1️⃣ STRICT product name match (as you wanted)
+    # 1) Strict name match
     if not strict_name_match(title, product_name):
         return False
 
-    # 2️⃣ Category signal (SOFT, not killer)
-    # category missing is NOT instant reject
-    category_present = category.lower() in title
-
-    # 3️⃣ Generic accessory detection
-    if is_accessory(title, product_name, category):
+    # 2) Category must match
+    if not category_match(title, category):
         return False
 
-    # If product name strong match → accept
+    # 3) Accessory blocker
+    if is_accessory(title, category):
+        return False
+
     return True
 
 
@@ -617,83 +670,77 @@ def passes_all_constraints(
 # =====================================================================
 def scrape_product_platforms(
     product_name: str,
-    category: str,
     moq: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     - Wholesale: Made-in-China (top 2)
     - Retail: Mega.pk + Homeshopping.pk + Telemart.pk + Daraz.pk
+    - Daraz ke har listing ka product page detail bhi laata hai
     """
 
     # -------- WHOLESALE (MIC) --------
-    mic = scrape_mic_wholesale_for_product(product_name, moq=None)
+    mic = scrape_mic_wholesale_for_product(product_name, moq)
 
     wholesale_items = [
         {**item, "platform": "made-in-china"} for item in mic["wholesale"]
     ]
 
     # -------- RETAIL LISTINGS (3 local stores) --------
-    mega_raw = scrape_mega_pk(product_name)
-    hs_raw = scrape_homeshopping(product_name)
-    tm_raw = scrape_telemart(product_name)
+    mega = scrape_mega_pk(product_name)
+    hs = scrape_homeshopping(product_name)
+    tm = scrape_telemart(product_name)
 
     retail: List[Dict[str, Any]] = []
 
-    # filter with constraints and add detail=None (for structure)
-    mega = [
-        m for m in mega_raw if passes_all_constraints(m, product_name, category)
-    ]
+    # add detail=None
+    mega = [m for m in scrape_mega_pk(product_name) if passes_all_constraints(m, product_name, category)]
     for item in mega:
         item["detail"] = None
         retail.append(item)
 
-    hs = [m for m in hs_raw if passes_all_constraints(m, product_name, category)]
+    hs = [m for m in scrape_homeshopping(product_name) if passes_all_constraints(m, product_name, category)]
     for item in hs:
         item["detail"] = None
         retail.append(item)
+    tm = [m for m in scrape_telemart(product_name) if passes_all_constraints(m, product_name, category)]
 
-    tm = [m for m in tm_raw if passes_all_constraints(m, product_name, category)]
     for item in tm:
         item["detail"] = None
         retail.append(item)
 
-    # -------- DARAZ: listing --------
-    daraz_items: List[Dict[str, Any]] = []
-    daraz_search_url = f"https://www.daraz.pk/catalog/?q={quote_plus(product_name)}"
+    # -------- DARAZ: listing + product page detail --------
+    # -------- DARAZ: listing + product page detail --------
+daraz_items, daraz_search_url = scrape_daraz_listing(product_name, max_items=20)
 
-    try:
-        daraz_items, daraz_search_url = scrape_daraz_listing(
-            product_name, max_items=20
-        )
-    except Exception:
-        # agar playwright/browser issue ho to daraz skip kar denge
-        daraz_items = []
+filtered_daraz = []
+for item in daraz_items:
+    if passes_all_constraints(item, product_name, category):
+        
+        # Add product page detail
+        try:
+            detail = scrape_daraz_product(item["url"])
+        except:
+            detail = None
 
-    filtered_daraz: List[Dict[str, Any]] = []
-    for item in daraz_items:
-        if passes_all_constraints(item, product_name, category):
-            item["detail"] = None  # abhi detail page nahi laa rahe
-            filtered_daraz.append(item)
+        item["detail"] = detail
+        filtered_daraz.append(item)
 
-    # sort by price & top 5
-    filtered_daraz.sort(key=lambda x: x["list_price"])
-    filtered_daraz = filtered_daraz[:5]
+# sort by price
+filtered_daraz.sort(key=lambda x: x["list_price"])
 
-    for f in filtered_daraz:
-        retail.append(f)
+# pick top 5 only
+filtered_daraz = filtered_daraz[:5]
+
+for f in filtered_daraz:
+    retail.append(f)
+
 
     # -------- LINKS_USED MERGING --------
     links_used: Dict[str, Any] = dict(mic["links_used"])
 
-    mega_search_url = (
-        f"https://www.mega.pk/search/{product_name.replace(' ', '+')}/"
-    )
-    hs_search_url = (
-        f"https://www.homeshopping.pk/{quote_plus(product_name)}?map=ft"
-    )
-    tm_search_url = (
-        f"https://telemart.pk/search?query={quote_plus(product_name)}"
-    )
+    mega_search_url = f"https://www.mega.pk/search/{product_name.replace(' ', '+')}/"
+    hs_search_url = f"https://www.homeshopping.pk/{quote_plus(product_name)}?map=ft"
+    tm_search_url = f"https://telemart.pk/search?query={quote_plus(product_name)}"
 
     links_used.update(
         {
@@ -707,8 +754,6 @@ def scrape_product_platforms(
     return {
         "product_name": product_name,
         "links_used": links_used,
-        "wholesale": {
-            "made_in_china": wholesale_items,
-        },
+        "wholesale": wholesale_items,
         "retail": retail,
     }

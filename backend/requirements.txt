@@ -1,7 +1,20 @@
 fastapi
 uvicorn[standard]
-pydantic
-python-dotenv
+
 requests
 beautifulsoup4
 lxml
+
+playwright
+
+pydantic
+python-multipart
+
+# Optional but recommended
+httpx
+
+# If you use JSON / parsing utilities
+ujson
+
+# If you use dotenv for env variables (optional)
+python-dotenv

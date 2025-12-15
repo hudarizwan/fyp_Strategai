@@ -1,5 +1,5 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI 
+from fastapi.middleware.cors import CORSMiddleware 
 
 
 from app.api.scraper import router as scraper_router
@@ -38,6 +38,8 @@ def health():
 #   Attach Routers
 # -------------------------------
 app.include_router(scraper_router, prefix="/scraper", tags=["Scraper Agent"])
+
+
 
 # Will add later:
 # app.include_router(nlp_router, prefix="/nlp", tags=["NLP Agent"])
