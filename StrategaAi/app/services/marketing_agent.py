@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from app.services.ecdb import ECDB
+import ollama
 
 logger = logging.getLogger(__name__)
 
@@ -177,4 +178,106 @@ class MarketingAgent:
             "wholesale_origins": list(set(wholesale_origins)),
             "moq_range": moq_range,
             "review_themes": review_themes[:5],
+        }
+
+    # ------------------------------------------------------------------
+    # Step 3 — Generate (Ollama call #1)
+    # ------------------------------------------------------------------
+
+    def _generate(self, enriched: Dict[str, Any]) -> Dict[str, Any]:
+        system_prompt = self._build_system_prompt()
+        user_content = (
+            "Generate a complete marketing strategy for this product. "
+            "Return ONLY valid JSON matching the schema. No prose, no markdown fences.\n\n"
+            f"INPUT DATA:\n{json.dumps(enriched, indent=2)}"
+        )
+        try:
+            client = ollama.Client(host=self.ollama_base_url)
+            response = client.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                options={"temperature": 0.3},
+            )
+            raw_text = response["message"]["content"]
+            return self._extract_json(raw_text)
+        except Exception as exc:
+            logger.error("Ollama generate call failed: %s", exc)
+            return self._empty_strategy(str(exc))
+
+    def _build_system_prompt(self) -> str:
+        return f"""You are a senior marketing strategist specialising in Pakistan e-commerce.
+Follow this lifecycle: Perceive → Enrich → Reason → Plan → Generate → Validate → Store.
+
+{PAKISTAN_CONTEXT}
+
+Required frameworks to include:
+- STP (Segmentation, Targeting, Positioning)
+- SWOT (Strengths, Weaknesses, Opportunities, Threats)
+- PESTEL
+- 4Ps Marketing Mix (Product, Price, Place, Promotion)
+- Porter's Five Forces (inside competitor_analysis.five_forces)
+- AARRR Growth Funnel (inside growth_funnel)
+
+Evidence grounding: Every major recommendation MUST include an "evidence" field citing
+specific input data fields (e.g., "price_band", "vendor_count", "review_themes").
+
+Pricing consistency: recommended prices in marketing_mix.price MUST align with
+buy_price_pkr and sell_price_pkr in the input. Do not contradict them.
+
+Output ONLY this JSON object, fully populated, no extra text:
+{{
+  "stp": {{"segmentation": {{}}, "targeting": {{}}, "positioning": {{}}}},
+  "swot": {{"strengths": [], "weaknesses": [], "opportunities": [], "threats": []}},
+  "pestel": {{"political": "", "economic": "", "social": "", "technological": "", "environmental": "", "legal": ""}},
+  "competitor_analysis": {{
+    "five_forces": {{"supplier_power": "", "buyer_power": "", "competitive_rivalry": "", "threat_of_substitutes": "", "threat_of_new_entrants": ""}},
+    "key_competitors": [],
+    "price_band": {{"min": 0, "max": 0, "currency": "PKR"}}
+  }},
+  "marketing_mix": {{"product": {{}}, "price": {{}}, "place": {{}}, "promotion": {{}}}},
+  "branding": {{"value_proposition": "", "tone": "", "tagline": ""}},
+  "channels": [],
+  "content_strategy": {{}},
+  "launch_plan": {{"phases": [], "kpis": [], "measurement_plan": {{}}}},
+  "growth_funnel": {{"model": "AARRR", "stages": []}},
+  "evidence_ledger": [],
+  "validation_report": {{"status": "ok", "checks": [], "flags": []}},
+  "confidence_score": 0.0,
+  "analysis_status": "ok"
+}}"""
+
+    def _extract_json(self, text: str) -> Dict[str, Any]:
+        """Extract JSON from model output, handling code fences and prose wrapping."""
+        try:
+            return json.loads(text.strip())
+        except json.JSONDecodeError:
+            pass
+        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if fence_match:
+            try:
+                return json.loads(fence_match.group(1))
+            except json.JSONDecodeError:
+                pass
+        brace_match = re.search(r"\{.*\}", text, re.DOTALL)
+        if brace_match:
+            try:
+                return json.loads(brace_match.group(0))
+            except json.JSONDecodeError:
+                pass
+        logger.warning("Could not parse JSON from model output")
+        return self._empty_strategy("unparseable model output")
+
+    def _empty_strategy(self, reason: str = "") -> Dict[str, Any]:
+        return {
+            "stp": {}, "swot": {}, "pestel": {}, "competitor_analysis": {},
+            "marketing_mix": {}, "branding": {}, "channels": [],
+            "content_strategy": {}, "launch_plan": {},
+            "growth_funnel": {"model": "AARRR", "stages": []},
+            "evidence_ledger": [],
+            "validation_report": {"status": "invalid", "checks": [], "flags": [reason]},
+            "confidence_score": 0.0,
+            "analysis_status": "invalid",
         }

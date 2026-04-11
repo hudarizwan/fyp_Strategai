@@ -172,3 +172,87 @@ def test_enrich_extracts_review_themes():
     perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
     enriched = agent._enrich(perceived, VALID_SCRAPER)
     assert len(enriched["review_themes"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Generate
+# ---------------------------------------------------------------------------
+
+import json as _json
+
+MINIMAL_VALID_STRATEGY = {
+    "stp": {"segmentation": {}, "targeting": {}, "positioning": {}},
+    "swot": {"strengths": ["low cost"], "weaknesses": [], "opportunities": [], "threats": []},
+    "pestel": {"political": "stable", "economic": "growing", "social": "online shift",
+               "technological": "4G coverage", "environmental": "N/A", "legal": "import duties"},
+    "competitor_analysis": {
+        "five_forces": {"supplier_power": "medium", "buyer_power": "high",
+                        "competitive_rivalry": "high", "threat_of_substitutes": "medium",
+                        "threat_of_new_entrants": "low"},
+        "key_competitors": ["TechStore"],
+        "price_band": {"min": 39000, "max": 40000, "currency": "PKR"},
+    },
+    "marketing_mix": {
+        "product": {"description": "noise cancelling headphones"},
+        "price": {"strategy": "competitive", "recommended_sell_pkr": 38000},
+        "place": {"channels": ["Daraz"]},
+        "promotion": {"tactics": ["social media"]},
+    },
+    "branding": {"value_proposition": "best sound", "tone": "premium", "tagline": "Hear More"},
+    "channels": [{"name": "Daraz", "priority": 1, "rationale": "largest marketplace"}],
+    "content_strategy": {"formats": ["video"], "frequency": "3x per week"},
+    "launch_plan": {
+        "phases": [{"name": "Soft Launch", "duration": "2 weeks", "actions": ["list on Daraz"]}],
+        "kpis": [{"metric": "units sold", "target": 50, "period": "month 1"}],
+        "measurement_plan": {"tools": ["Daraz analytics"], "cadence": "weekly"},
+    },
+    "growth_funnel": {
+        "model": "AARRR",
+        "stages": [{"stage": "Acquisition", "metric": "listing views", "target": 1000}],
+    },
+    "evidence_ledger": [{"recommendation": "price at 38000", "evidence": ["retail price band 39k-40k"]}],
+    "validation_report": {"status": "ok", "checks": [], "flags": []},
+    "confidence_score": 0.78,
+    "analysis_status": "ok",
+}
+
+
+def test_generate_parses_valid_json_response():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+
+    mock_response = {"message": {"content": _json.dumps(MINIMAL_VALID_STRATEGY)}}
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama:
+        mock_ollama.Client.return_value.chat.return_value = mock_response
+        result = agent._generate(enriched)
+
+    assert result["analysis_status"] == "ok"
+    assert "stp" in result
+
+
+def test_generate_extracts_json_from_prose():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+
+    wrapped = f"Here is the strategy:\n```json\n{_json.dumps(MINIMAL_VALID_STRATEGY)}\n```"
+    mock_response = {"message": {"content": wrapped}}
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama:
+        mock_ollama.Client.return_value.chat.return_value = mock_response
+        result = agent._generate(enriched)
+
+    assert "stp" in result
+
+
+def test_generate_returns_error_dict_on_unparseable_response():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+
+    mock_response = {"message": {"content": "I cannot generate a strategy."}}
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama:
+        mock_ollama.Client.return_value.chat.return_value = mock_response
+        result = agent._generate(enriched)
+
+    assert result["analysis_status"] == "invalid"

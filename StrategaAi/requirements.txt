@@ -1,0 +1,30 @@
+fastapi==0.135.3
+uvicorn[standard]
+
+requests
+beautifulsoup4
+lxml
+
+playwright
+
+pydantic==2.12.5
+python-multipart
+
+# Optional but recommended
+httpx
+
+# If you use JSON / parsing utilities
+ujson
+
+# If you use dotenv for env variables (optional)
+python-dotenv
+pg8000==1.31.5
+greenlet==3.3.2
+
+# Analytics / NLP runtime
+numpy==2.4.4
+pandas==3.0.2
+scipy==1.17.1
+scikit-learn==1.8.0
+xgboost==3.2.0
+ollama>=0.2.0
