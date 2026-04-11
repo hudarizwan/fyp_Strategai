@@ -348,3 +348,61 @@ Output ONLY this JSON object, fully populated, no extra text:
             strategy["analysis_status"] = status
 
         return strategy
+
+    # ------------------------------------------------------------------
+    # Step 5 — Critic (Ollama call #2)
+    # ------------------------------------------------------------------
+
+    def _critic(
+        self,
+        strategy: Dict[str, Any],
+        enriched: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        flags = (strategy.get("validation_report") or {}).get("flags") or []
+        if not flags:
+            return strategy  # nothing to fix
+
+        critic_prompt = (
+            "You are a critical reviewer. The marketing strategy below has validation issues. "
+            "Fix ONLY the flagged problems. Return the corrected strategy as valid JSON only. "
+            "Do not change sections that are not flagged.\n\n"
+            f"FLAGS:\n{json.dumps(flags)}\n\n"
+            f"STRATEGY:\n{json.dumps(strategy)}"
+        )
+        try:
+            client = ollama.Client(host=self.ollama_base_url)
+            response = client.chat(
+                model=self.model,
+                messages=[{"role": "user", "content": critic_prompt}],
+                options={"temperature": 0.1},
+            )
+            raw_text = response["message"]["content"]
+            improved = self._extract_json(raw_text)
+            if improved.get("analysis_status") != "invalid" and improved.get("stp"):
+                return improved
+        except Exception as exc:
+            logger.warning("Critic pass failed: %s — keeping validated strategy", exc)
+        return strategy
+
+    # ------------------------------------------------------------------
+    # Step 6 — Store
+    # ------------------------------------------------------------------
+
+    def _store(
+        self,
+        strategy: Dict[str, Any],
+        product_name: str,
+        category: str,
+        pipeline_run_id: Optional[str],
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "product_name": product_name,
+            "category": category,
+            "strategy": strategy,
+            "analysis_status": strategy.get("analysis_status", "ok"),
+            "confidence_score": strategy.get("confidence_score"),
+        }
+        if pipeline_run_id:
+            payload["pipeline_run_id"] = pipeline_run_id
+        stored = self.db.insert_marketing_strategy(payload)
+        return {**stored, **strategy}

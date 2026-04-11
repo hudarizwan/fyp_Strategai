@@ -302,3 +302,58 @@ def test_validate_invalid_analysis_status():
     bad = {**MINIMAL_VALID_STRATEGY, "analysis_status": "invalid"}
     result = agent._validate(bad, perceived)
     assert result["validation_report"]["status"] in ("needs_review", "invalid")
+
+
+# ---------------------------------------------------------------------------
+# Critic + run()
+# ---------------------------------------------------------------------------
+
+def test_critic_returns_improved_strategy():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    strategy_with_flags = {
+        **MINIMAL_VALID_STRATEGY,
+        "validation_report": {
+            "status": "needs_review",
+            "checks": [],
+            "flags": ["evidence_ledger:empty"],
+        },
+        "evidence_ledger": [],
+    }
+    improved = {**MINIMAL_VALID_STRATEGY, "evidence_ledger": [{"recommendation": "fixed", "evidence": ["price_band"]}]}
+    mock_response = {"message": {"content": _json.dumps(improved)}}
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama:
+        mock_ollama.Client.return_value.chat.return_value = mock_response
+        result = agent._critic(strategy_with_flags, enriched)
+    assert result["evidence_ledger"][0]["recommendation"] == "fixed"
+
+
+def test_critic_keeps_original_if_parse_fails():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    strategy_ok = {**MINIMAL_VALID_STRATEGY}
+    mock_response = {"message": {"content": "not json"}}
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama:
+        mock_ollama.Client.return_value.chat.return_value = mock_response
+        result = agent._critic(strategy_ok, enriched)
+    assert result["analysis_status"] == "ok"
+
+
+def test_run_returns_strategy_with_id():
+    agent = _make_agent()
+    stored_row = {"id": "xyz-123", **MINIMAL_VALID_STRATEGY,
+                  "product_name": "Sony WH-1000XM5", "category": "headsets",
+                  "created_at": "2026-04-12T00:00:00Z"}
+
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama, \
+         _patch.object(agent.db, "insert_marketing_strategy", return_value=stored_row):
+        mock_ollama.Client.return_value.chat.return_value = {
+            "message": {"content": _json.dumps(MINIMAL_VALID_STRATEGY)}
+        }
+        result = agent.run(
+            "Sony WH-1000XM5", "headsets",
+            VALID_ANALYTICS, VALID_SCRAPER,
+        )
+    assert result["id"] == "xyz-123"
