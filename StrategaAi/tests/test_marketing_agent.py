@@ -74,3 +74,101 @@ def test_get_marketing_strategy_by_id_not_found():
     with patch.object(db, "_rest_get", return_value=[]):
         result = db.get_marketing_strategy_by_id("missing-id")
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Perceive + Enrich
+# ---------------------------------------------------------------------------
+
+from unittest.mock import patch as _patch
+
+VALID_ANALYTICS = {
+    "recommended_buy_price_pkr": 28000.0,
+    "recommended_sell_price_pkr": 38000.0,
+    "expected_profit_margin": 26.3,
+    "confidence_score": 0.81,
+    "confidence_reason": "sufficient data",
+    "wholesale_vendors_count": 6,
+    "retail_sellers_count": 12,
+}
+
+VALID_SCRAPER = {
+    "wholesale": {
+        "made_in_china": [
+            {"supplier": "Shenzhen Co", "unit_price": 100.0, "unit_price_pkr": 28000.0,
+             "currency": "USD", "moq": 10, "origin": "China"},
+        ]
+    },
+    "retail": [
+        {"seller": "TechStore", "platform": "daraz", "list_price": 39000.0,
+         "title": "Sony WH-1000XM5", "url": "https://daraz.pk/1",
+         "detail": {"highlights": "Great noise cancelling, fast delivery"}},
+        {"seller": "GadgetHub", "platform": "daraz", "list_price": 40000.0,
+         "title": "Sony Headphones", "url": "https://daraz.pk/2", "detail": {}},
+    ],
+}
+
+
+def _make_agent():
+    with _patch("app.services.marketing_agent.ECDB"):
+        from app.services.marketing_agent import MarketingAgent
+        agent = MarketingAgent(ollama_base_url="http://localhost:11434", model="llama3.1:8b")
+    return agent
+
+
+def test_perceive_valid_input():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    assert perceived["product_name"] == "Sony WH-1000XM5"
+    assert perceived["buy_price_pkr"] == 28000.0
+    assert perceived["sell_price_pkr"] == 38000.0
+    assert perceived["margin_percent"] == 26.3
+    assert perceived["confidence_score"] == 0.81
+    assert perceived["vendor_count"] == 6
+    assert perceived["seller_count"] == 12
+
+
+def test_perceive_missing_required_field_raises():
+    agent = _make_agent()
+    bad = {k: v for k, v in VALID_ANALYTICS.items() if k != "recommended_buy_price_pkr"}
+    with pytest.raises(ValueError, match="recommended_buy_price_pkr"):
+        agent._perceive("Product", "category", bad)
+
+
+def test_perceive_negative_price_raises():
+    agent = _make_agent()
+    bad = {**VALID_ANALYTICS, "recommended_buy_price_pkr": -100.0}
+    with pytest.raises(ValueError, match="positive"):
+        agent._perceive("Product", "category", bad)
+
+
+def test_perceive_confidence_out_of_range_raises():
+    agent = _make_agent()
+    bad = {**VALID_ANALYTICS, "confidence_score": 1.5}
+    with pytest.raises(ValueError, match="confidence_score"):
+        agent._perceive("Product", "category", bad)
+
+
+def test_enrich_extracts_competitors():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    assert enriched["competitor_count"] == 2
+    assert enriched["price_band"]["min"] == 39000.0
+    assert enriched["price_band"]["max"] == 40000.0
+    assert "TechStore" in enriched["competitor_names"]
+
+
+def test_enrich_extracts_wholesale_origins():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    assert "China" in enriched["wholesale_origins"]
+    assert enriched["moq_range"]["min"] == 10
+
+
+def test_enrich_extracts_review_themes():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    assert len(enriched["review_themes"]) > 0
