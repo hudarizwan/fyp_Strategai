@@ -256,3 +256,49 @@ def test_generate_returns_error_dict_on_unparseable_response():
         result = agent._generate(enriched)
 
     assert result["analysis_status"] == "invalid"
+
+
+# ---------------------------------------------------------------------------
+# Validate
+# ---------------------------------------------------------------------------
+
+def test_validate_ok_strategy_passes():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    result = agent._validate(MINIMAL_VALID_STRATEGY.copy(), perceived)
+    assert result["validation_report"]["status"] == "ok"
+    assert result["analysis_status"] == "ok"
+
+
+def test_validate_missing_key_flags_needs_review():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    bad = {k: v for k, v in MINIMAL_VALID_STRATEGY.items() if k != "swot"}
+    result = agent._validate(bad, perceived)
+    assert result["validation_report"]["status"] == "needs_review"
+    assert any("swot" in flag for flag in result["validation_report"]["flags"])
+
+
+def test_validate_empty_evidence_ledger_flags():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    bad = {**MINIMAL_VALID_STRATEGY, "evidence_ledger": []}
+    result = agent._validate(bad, perceived)
+    assert result["validation_report"]["status"] in ("needs_review", "invalid")
+    assert any("evidence_ledger" in flag for flag in result["validation_report"]["flags"])
+
+
+def test_validate_confidence_out_of_range_flags():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    bad = {**MINIMAL_VALID_STRATEGY, "confidence_score": 1.8}
+    result = agent._validate(bad, perceived)
+    assert any("confidence_score" in flag for flag in result["validation_report"]["flags"])
+
+
+def test_validate_invalid_analysis_status():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    bad = {**MINIMAL_VALID_STRATEGY, "analysis_status": "invalid"}
+    result = agent._validate(bad, perceived)
+    assert result["validation_report"]["status"] in ("needs_review", "invalid")

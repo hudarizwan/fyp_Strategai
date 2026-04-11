@@ -281,3 +281,70 @@ Output ONLY this JSON object, fully populated, no extra text:
             "confidence_score": 0.0,
             "analysis_status": "invalid",
         }
+
+    # ------------------------------------------------------------------
+    # Step 4 — Validate (Python)
+    # ------------------------------------------------------------------
+
+    def _validate(
+        self,
+        strategy: Dict[str, Any],
+        perceived: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        strategy = dict(strategy)
+        flags: List[str] = []
+        checks: List[str] = []
+
+        # Required keys
+        for key in REQUIRED_OUTPUT_KEYS:
+            if key not in strategy:
+                flags.append(f"missing_key:{key}")
+            else:
+                checks.append(f"present:{key}")
+
+        # confidence_score range
+        cs = strategy.get("confidence_score")
+        if cs is not None:
+            try:
+                cs = float(cs)
+                if not (0.0 <= cs <= 1.0):
+                    flags.append(f"confidence_score out of range: {cs}")
+                else:
+                    checks.append("confidence_score_range:ok")
+            except (TypeError, ValueError):
+                flags.append("confidence_score not numeric")
+
+        # analysis_status not already invalid
+        if strategy.get("analysis_status") == "invalid":
+            flags.append("analysis_status:invalid from generate step")
+
+        # evidence_ledger not empty
+        if not strategy.get("evidence_ledger"):
+            flags.append("evidence_ledger:empty")
+        else:
+            checks.append("evidence_ledger:populated")
+
+        # launch_plan.kpis not empty
+        kpis = (strategy.get("launch_plan") or {}).get("kpis")
+        if not kpis:
+            flags.append("launch_plan.kpis:empty")
+        else:
+            checks.append("launch_plan.kpis:populated")
+
+        # Determine status
+        if len(flags) == 0:
+            status = "ok"
+        elif len(flags) <= 2:
+            status = "needs_review"
+        else:
+            status = "invalid"
+
+        strategy["validation_report"] = {
+            "status": status,
+            "checks": checks,
+            "flags": flags,
+        }
+        if status != "ok":
+            strategy["analysis_status"] = status
+
+        return strategy
