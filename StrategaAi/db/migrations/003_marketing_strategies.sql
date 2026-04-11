@@ -15,3 +15,5 @@ CREATE INDEX IF NOT EXISTS idx_marketing_strategies_created_at
     ON marketing_strategies(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_marketing_strategies_status
     ON marketing_strategies(analysis_status);
+CREATE INDEX IF NOT EXISTS idx_marketing_strategies_pipeline_run
+    ON marketing_strategies(pipeline_run_id);
