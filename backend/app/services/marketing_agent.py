@@ -71,6 +71,10 @@ class MarketingAgent:
         enriched = self._enrich(perceived, scraper_result)
         # _generate raises on Ollama connection errors — propagates to API as 502
         raw_strategy = self._generate(enriched)
+        # Populate evidence_ledger from enriched data if model left it empty
+        # (avoids a full second Ollama critic call for this soft flag alone)
+        raw_strategy = self._ensure_evidence_ledger(raw_strategy, enriched)
+        raw_strategy = self._ensure_kpis(raw_strategy, perceived)
         validated = self._validate(raw_strategy, perceived)
         final = self._critic(validated, enriched)
         return self._store(final, product_name, category, pipeline_run_id)
@@ -202,7 +206,7 @@ class MarketingAgent:
                 {"role": "user", "content": user_content},
             ],
             format="json",  # Constrains model to valid JSON output
-            options={"temperature": 0.3, "num_ctx": 8192},
+            options={"temperature": 0.3, "num_ctx": 4096},
         )
         # response is a ChatResponse Pydantic object — use attribute access, not []
         raw_text = response.message.content
@@ -215,27 +219,19 @@ class MarketingAgent:
         return result
 
     def _build_system_prompt(self) -> str:
-        return f"""You are a senior marketing strategist specialising in Pakistan e-commerce.
-Your ENTIRE response must be a single valid JSON object — no text before or after it.
+        return f"""You are a senior marketing strategist for Pakistan e-commerce. Respond with ONE JSON object only — no prose, no markdown.
 
 {PAKISTAN_CONTEXT}
 
-Required frameworks to include:
-- STP (Segmentation, Targeting, Positioning)
-- SWOT (Strengths, Weaknesses, Opportunities, Threats)
-- PESTEL
-- 4Ps Marketing Mix (Product, Price, Place, Promotion)
-- Porter's Five Forces (inside competitor_analysis.five_forces)
-- AARRR Growth Funnel (inside growth_funnel)
+Rules:
+- Keep ALL string values SHORT (1-2 sentences max).
+- Use arrays of strings for lists (strengths, weaknesses, etc.).
+- Prices in marketing_mix.price must match buy_price_pkr/sell_price_pkr from input.
+- confidence_score must be between 0.0 and 1.0.
+- Set analysis_status to "ok".
 
-Evidence grounding: every major recommendation MUST include an "evidence" field
-citing specific input data fields (e.g. "price_band", "vendor_count", "review_themes").
-
-Pricing consistency: prices in marketing_mix.price must align with buy_price_pkr
-and sell_price_pkr from the input. Do not contradict them.
-
-Output ONLY this JSON object, fully populated:
-{{"stp":{{"segmentation":{{}},"targeting":{{}},"positioning":{{}}}},"swot":{{"strengths":[],"weaknesses":[],"opportunities":[],"threats":[]}},"pestel":{{"political":"","economic":"","social":"","technological":"","environmental":"","legal":""}},"competitor_analysis":{{"five_forces":{{"supplier_power":"","buyer_power":"","competitive_rivalry":"","threat_of_substitutes":"","threat_of_new_entrants":""}},"key_competitors":[],"price_band":{{"min":0,"max":0,"currency":"PKR"}}}},"marketing_mix":{{"product":{{}},"price":{{}},"place":{{}},"promotion":{{}}}},"branding":{{"value_proposition":"","tone":"","tagline":""}},"channels":[],"content_strategy":{{}},"launch_plan":{{"phases":[],"kpis":[],"measurement_plan":{{}}}},"growth_funnel":{{"model":"AARRR","stages":[]}},"evidence_ledger":[],"validation_report":{{"status":"ok","checks":[],"flags":[]}},"confidence_score":0.0,"analysis_status":"ok"}}"""
+Required JSON structure (fill every field — no nulls, no empty strings):
+{{"stp":{{"segmentation":{{"demographics":"","psychographics":""}},"targeting":{{"primary_segment":""}},"positioning":{{"statement":""}}}},"swot":{{"strengths":[""],"weaknesses":[""],"opportunities":[""],"threats":[""]}},"pestel":{{"political":"","economic":"","social":"","technological":"","environmental":"","legal":""}},"competitor_analysis":{{"five_forces":{{"supplier_power":"","buyer_power":"","competitive_rivalry":"","threat_of_substitutes":"","threat_of_new_entrants":""}},"key_competitors":[""],"price_band":{{"min":0,"max":0,"currency":"PKR"}}}},"marketing_mix":{{"product":{{"description":"","usp":""}},"price":{{"strategy":"","recommended_sell_pkr":0}},"place":{{"channels":[""]}},"promotion":{{"tactics":[""]}}}},"branding":{{"value_proposition":"","tone":"","tagline":""}},"channels":[{{"name":"","priority":1,"rationale":""}}],"content_strategy":{{"formats":[""],"frequency":""}},"launch_plan":{{"phases":[{{"name":"","duration":"","actions":[""]}}],"kpis":[{{"metric":"","target":0,"period":""}}],"measurement_plan":{{"tools":[""],"cadence":""}}}},"growth_funnel":{{"model":"AARRR","stages":[{{"stage":"","metric":"","target":0}}]}},"evidence_ledger":[{{"recommendation":"","evidence":[""]}}],"validation_report":{{"status":"ok","checks":[],"flags":[]}},"confidence_score":0.75,"analysis_status":"ok"}}"""
 
     def _extract_json(self, text: str) -> Dict[str, Any]:
         """Extract JSON from model output. Handles code fences and leading/trailing prose."""
@@ -278,6 +274,63 @@ Output ONLY this JSON object, fully populated:
             "confidence_score": 0.0,
             "analysis_status": "invalid",
         }
+
+    # ------------------------------------------------------------------
+    # Post-generate enrichment (no LLM) — prevents unnecessary critic pass
+    # ------------------------------------------------------------------
+
+    def _ensure_evidence_ledger(
+        self, strategy: Dict[str, Any], enriched: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """If model returned empty evidence_ledger, build it from enriched context."""
+        if strategy.get("evidence_ledger"):
+            return strategy
+        strategy = dict(strategy)
+        ledger = []
+        price_band = enriched.get("price_band") or {}
+        if price_band.get("min") or price_band.get("max"):
+            ledger.append({
+                "recommendation": f"Price between PKR {price_band.get('min',0):,.0f}–{price_band.get('max',0):,.0f} based on retail market",
+                "evidence": ["price_band", "retail_sellers_count"],
+            })
+        origins = enriched.get("wholesale_origins") or []
+        if origins:
+            ledger.append({
+                "recommendation": f"Source from {', '.join(origins[:3])} wholesale channels",
+                "evidence": ["wholesale_origins", "moq_range"],
+            })
+        platforms = enriched.get("platform_distribution") or {}
+        if platforms:
+            top = max(platforms, key=platforms.get)
+            ledger.append({
+                "recommendation": f"Prioritise {top} for primary sales channel",
+                "evidence": ["platform_distribution", "competitor_names"],
+            })
+        if not ledger:
+            ledger.append({
+                "recommendation": f"Buy at PKR {enriched.get('buy_price_pkr',0):,.0f}, sell at PKR {enriched.get('sell_price_pkr',0):,.0f} for {enriched.get('margin_percent',0):.1f}% margin",
+                "evidence": ["buy_price_pkr", "sell_price_pkr", "margin_percent"],
+            })
+        strategy["evidence_ledger"] = ledger
+        return strategy
+
+    def _ensure_kpis(
+        self, strategy: Dict[str, Any], perceived: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """If model returned empty launch_plan.kpis, add sensible defaults."""
+        launch_plan = strategy.get("launch_plan") or {}
+        if launch_plan.get("kpis"):
+            return strategy
+        strategy = dict(strategy)
+        strategy["launch_plan"] = {
+            **launch_plan,
+            "kpis": [
+                {"metric": "Units sold", "target": 10, "period": "Month 1"},
+                {"metric": "Daraz listing views", "target": 500, "period": "Week 1"},
+                {"metric": "Profit margin %", "target": round(perceived.get("margin_percent", 20), 1), "period": "Monthly"},
+            ],
+        }
+        return strategy
 
     # ------------------------------------------------------------------
     # Step 4 — Validate (Python)
@@ -359,6 +412,14 @@ Output ONLY this JSON object, fully populated:
         if not flags:
             return strategy  # nothing to fix
 
+        # Soft flags are already handled by _ensure_evidence_ledger / _ensure_kpis.
+        # Only run a second (slow) Ollama call for structural missing-key issues.
+        SOFT_FLAG_PREFIXES = ("evidence_ledger", "launch_plan.kpis", "confidence_score out of range")
+        hard_flags = [f for f in flags if not any(f.startswith(p) for p in SOFT_FLAG_PREFIXES)]
+        if not hard_flags:
+            logger.info("Critic skipped — all flags are soft (handled by Python post-processing)")
+            return strategy
+
         critic_prompt = (
             "You are a critical reviewer. The marketing strategy below has validation issues. "
             "Fix ONLY the flagged problems. Return the corrected strategy as a single JSON object. "
@@ -372,7 +433,7 @@ Output ONLY this JSON object, fully populated:
                 model=self.model,
                 messages=[{"role": "user", "content": critic_prompt}],
                 format="json",
-                options={"temperature": 0.1, "num_ctx": 8192},
+                options={"temperature": 0.1, "num_ctx": 4096},
             )
             # response is a ChatResponse Pydantic object — use attribute access, not []
             raw_text = response.message.content

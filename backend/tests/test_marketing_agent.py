@@ -346,6 +346,7 @@ def test_validate_invalid_analysis_status():
 # ---------------------------------------------------------------------------
 
 def test_critic_returns_improved_strategy():
+    """Critic is called for hard flags (missing structural keys) and returns improved strategy."""
     agent = _make_agent()
     perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
     enriched = agent._enrich(perceived, VALID_SCRAPER)
@@ -354,17 +355,40 @@ def test_critic_returns_improved_strategy():
         "validation_report": {
             "status": "needs_review",
             "checks": [],
-            "flags": ["evidence_ledger:empty"],
+            # Hard flag — missing_key triggers critic (not a soft flag)
+            "flags": ["missing_key:channels"],
         },
-        "evidence_ledger": [],
+        "channels": [],
     }
-    improved = {**MINIMAL_VALID_STRATEGY, "evidence_ledger": [{"recommendation": "fixed", "evidence": ["price_band"]}]}
+    improved = {**MINIMAL_VALID_STRATEGY, "channels": [{"name": "Daraz", "priority": 1, "rationale": "fixed"}]}
     with _patch("app.services.marketing_agent.ollama") as mock_ollama:
         mock_ollama.Client.return_value.chat.return_value = _make_chat_response(
             _json.dumps(improved)
         )
         result = agent._critic(strategy_with_flags, enriched)
-    assert result["evidence_ledger"][0]["recommendation"] == "fixed"
+    assert result["channels"][0]["name"] == "Daraz"
+
+
+def test_critic_skips_for_soft_flags_only():
+    """Critic is NOT called when all flags are soft (evidence_ledger, kpis) — saves Ollama call."""
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    strategy_soft_flags = {
+        **MINIMAL_VALID_STRATEGY,
+        "validation_report": {
+            "status": "needs_review",
+            "checks": [],
+            "flags": ["evidence_ledger:empty", "launch_plan.kpis:empty"],
+        },
+        "evidence_ledger": [],
+    }
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama:
+        result = agent._critic(strategy_soft_flags, enriched)
+        # Ollama should NOT be called for soft-only flags
+        mock_ollama.Client.assert_not_called()
+    # Original strategy returned unchanged
+    assert result["analysis_status"] == "ok"
 
 
 def test_critic_keeps_original_if_parse_fails():
