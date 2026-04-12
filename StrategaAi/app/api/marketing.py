@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
 import os
+import uuid
 
 from app.services.marketing_agent import MarketingAgent
 
@@ -69,6 +70,10 @@ async def get_marketing_history(limit: int = 20):
 @router.get("/{strategy_id}")
 async def get_marketing_strategy(strategy_id: str):
     """Return a single marketing strategy by ID."""
+    try:
+        uuid.UUID(strategy_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid strategy_id format")
     try:
         from app.services.ecdb import ECDB
         db = ECDB()

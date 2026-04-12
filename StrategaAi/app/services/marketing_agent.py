@@ -405,4 +405,9 @@ Output ONLY this JSON object, fully populated, no extra text:
         if pipeline_run_id:
             payload["pipeline_run_id"] = pipeline_run_id
         stored = self.db.insert_marketing_strategy(payload)
+        if not stored.get("id"):
+            logger.error(
+                "DB insert returned no id for product=%r — Supabase insert may have failed silently (RLS?)",
+                product_name,
+            )
         return {**stored, **strategy}
