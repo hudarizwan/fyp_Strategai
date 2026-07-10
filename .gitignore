@@ -7,3 +7,6 @@ __pycache__/
 node_modules/
 .next/
 .env.local
+
+# Local worktrees
+.worktrees/
