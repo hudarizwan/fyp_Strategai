@@ -450,6 +450,12 @@ def build_pricing_mode_snapshot(
     retail_count = _normalise_count(retail_metrics.get("vendor_count", 0))
     family = infer_market_family(product_name, category)
     confidence = _clamp(_safe_float(confidence_score))
+    if buy_price <= 0.0 or base_sell <= 0.0 or wholesale_count == 0 or retail_count == 0:
+        return {
+            "pricing_modes": {},
+            "primary_pricing_mode": "insufficient_data",
+            "alternate_pricing_modes": [],
+        }
     price_spread = max(retail_max - retail_min, 0.0)
     retail_anchor = retail_avg or retail_min or retail_max or base_sell or (buy_price * 1.25)
     competition_pressure = _clamp((retail_count / 8.0) * 0.55 + min(retail_cv, 1.0) * 0.45)

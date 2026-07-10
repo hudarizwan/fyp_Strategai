@@ -408,5 +408,29 @@ class AnalyticsAgentTests(unittest.TestCase):
         )
 
 
+    def test_insufficient_data_returns_no_pricing_modes(self):
+        agent = self.build_agent()
+        wholesale = agent._compute_market_metrics([], role="wholesale")
+        retail = agent._compute_market_metrics(
+            [{"price_pkr": 1200, "platform": "daraz", "supplier_or_seller": "seller-1"}],
+            role="retail",
+        )
+        combined = {"has_both_sources": False, "platform_count": 1, "vendor_count": 1, "price_spread": 0.0}
+        pricing = agent._compute_pricing(wholesale, retail, combined, confidence_score=0.3, category_policy=agent.category_policies["unknown"])
+        snapshot = agent._build_commercial_intelligence(
+            product_name="Mystery Product",
+            category="misc",
+            wholesale_metrics=wholesale,
+            retail_metrics=retail,
+            combined_metrics=combined,
+            pricing=pricing,
+            confidence_score=0.3,
+            low_sample_warning=True,
+        )
+        self.assertEqual(snapshot["primary_pricing_mode"], "insufficient_data")
+        self.assertEqual(snapshot["alternate_pricing_modes"], [])
+        self.assertEqual(snapshot["pricing_modes"], {})
+
+
 if __name__ == "__main__":
     unittest.main()

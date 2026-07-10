@@ -438,6 +438,7 @@ class AnalyticsAgent:
         commercial_intelligence = self._build_commercial_intelligence(
             product_name=product_name,
             category=category,
+            effective_category=detected_category,
             wholesale_metrics=wholesale_metrics,
             retail_metrics=retail_metrics,
             combined_metrics=combined_metrics,
@@ -1393,6 +1394,7 @@ class AnalyticsAgent:
         *,
         product_name: str,
         category: str,
+        effective_category: Optional[str] = None,
         wholesale_metrics: Dict[str, Any],
         retail_metrics: Dict[str, Any],
         combined_metrics: Dict[str, Any],
@@ -1400,9 +1402,10 @@ class AnalyticsAgent:
         confidence_score: float,
         low_sample_warning: bool,
     ) -> Dict[str, Any]:
+        selected_category = effective_category or category
         profitability_snapshot = compute_profitability_snapshot(
             product_name=product_name,
-            category=category,
+            category=selected_category,
             buy_price_pkr=pricing.get("recommended_buy", 0.0),
             sell_price_pkr=pricing.get("recommended_sell", 0.0),
             confidence_score=confidence_score,
@@ -1427,7 +1430,7 @@ class AnalyticsAgent:
         )
         pricing_mode_snapshot = build_pricing_mode_snapshot(
             product_name=product_name,
-            category=category,
+            category=selected_category,
             wholesale_metrics=wholesale_metrics,
             retail_metrics=retail_metrics,
             combined_metrics=combined_metrics,
@@ -1449,7 +1452,7 @@ class AnalyticsAgent:
         profitability = profitability_snapshot.get("profitability_summary") or {}
         return {
             "product_name": product_name,
-            "category": category,
+            "category": selected_category,
             "quality_band": profitability_snapshot.get("quality_band", "balanced"),
             "cost_profile": profitability_snapshot.get("cost_profile") or {},
             "cost_breakdown": profitability_snapshot.get("cost_breakdown") or {},
