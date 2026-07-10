@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.services.ecdb import ECDB
+from app.services.marketing_prompt_builder import build_business_state, build_recommendation_cards
 
 
 def _make_ecdb_rest():
@@ -47,13 +48,14 @@ def test_insert_marketing_strategy_returns_row():
             "confidence_score": 0.8,
         })
     assert result["id"] == "aaaa-1111"
-    mock_post.assert_called_once_with("marketing_strategies", {
-        "product_name": "Headphones",
-        "category": "headsets",
-        "strategy": {"stp": {}},
-        "analysis_status": "ok",
-        "confidence_score": 0.8,
-    })
+    mock_post.assert_called_once()
+    table_name, payload = mock_post.call_args.args
+    assert table_name == "marketing_strategies"
+    assert payload["product_name"] == "Headphones"
+    assert payload["category"] == "headsets"
+    assert payload["strategy"] == {"stp": {}}
+    assert payload["analysis_status"] == "ok"
+    assert payload["confidence_score"] == 0.8
 
 
 def test_get_marketing_history_returns_list():
@@ -99,6 +101,36 @@ VALID_ANALYTICS = {
     "retail_sellers_count": 12,
 }
 
+STRUCTURED_ANALYTICS = {
+    **VALID_ANALYTICS,
+    "primary_pricing_mode": "balanced",
+    "alternate_pricing_modes": ["competitive", "premium"],
+    "pricing_decision_summary": {
+        "selected_mode": "balanced",
+        "selection_reason": [
+            "Balanced pricing strategy selected",
+            "Competition is medium",
+            "Demand is high",
+        ],
+        "supporting_evidence": ["pricing_strategy=balanced", "competition=medium"],
+        "confidence_explanation": "Confidence remains high because coverage is stable.",
+        "risk_summary": ["No major pricing risk signals after sanity checks."],
+        "psychological_adjustment": {
+            "applied": False,
+            "strategy": "balanced",
+            "raw_price_pkr": 38000.0,
+            "adjusted_price_pkr": 37999.0,
+            "reason": "Rounded to a psychological ending while preserving profitability constraints.",
+        },
+    },
+    "market_intelligence": {
+        "competition_score": 74.0,
+        "demand_score": 81.0,
+        "supplier_quality_score": 68.0,
+        "opportunity_score": 77.0,
+        "risk_score": 29.0,
+    },
+}
 VALID_SCRAPER = {
     "wholesale": {
         "made_in_china": [
@@ -223,6 +255,147 @@ MINIMAL_VALID_STRATEGY = {
     "analysis_status": "ok",
 }
 
+
+
+
+def test_build_business_state_returns_labelled_market_state():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", STRUCTURED_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    business_state = agent._build_business_state(perceived, STRUCTURED_ANALYTICS, enriched)
+
+    assert business_state["market_state"]["pricing_strategy"] == "BALANCED"
+    assert business_state["market_state"]["confidence"] == "HIGH"
+    assert business_state["market_state"]["competition"] == "HIGH"
+    assert business_state["category_playbook"]["positioning"] == "Mid-range Premium"
+    assert "Daraz" in business_state["category_playbook"]["primary_channels"]
+
+
+def test_build_business_state_exposes_richer_category_playbook():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", STRUCTURED_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    business_state = agent._build_business_state(perceived, STRUCTURED_ANALYTICS, enriched)
+    playbook = business_state["category_playbook"]
+
+    assert playbook["category_label"] == "Gaming Headsets"
+    assert playbook["channel_roles"]["TikTok"] == "discovery"
+    assert playbook["audience_profile"]["price_sensitivity"] == "medium"
+    assert playbook["typical_margin_band"]["min"] == 30
+    assert "Warranty proof" in playbook["promotion_hooks"]
+
+
+def test_generate_uses_structured_business_state_not_raw_analytics_numbers():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", STRUCTURED_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    business_state = agent._build_business_state(perceived, STRUCTURED_ANALYTICS, enriched)
+    generation_input = agent._build_generation_input(perceived, enriched, business_state)
+
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama:
+        mock_ollama.Client.return_value.chat.return_value = _make_chat_response(
+            _json.dumps(MINIMAL_VALID_STRATEGY)
+        )
+        agent._generate(generation_input)
+
+    user_content = mock_ollama.Client.return_value.chat.call_args.kwargs["messages"][1]["content"]
+    assert '"market_state"' in user_content
+    assert '"category_playbook"' in user_content
+    assert '"recommended_buy_price_pkr"' not in user_content
+    assert '"recommended_sell_price_pkr"' not in user_content
+
+
+def test_recommendation_cards_reference_evidence_paths_and_confidence():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", STRUCTURED_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    business_state = agent._build_business_state(perceived, STRUCTURED_ANALYTICS, enriched)
+    strategy = {
+        **MINIMAL_VALID_STRATEGY,
+        "marketing_decision_summary": {
+            "selected_positioning": "Mid-range Premium",
+            "selection_reason": ["Balanced pricing strategy selected"],
+            "recommended_channels": ["Daraz", "TikTok"],
+            "confidence": "High",
+        },
+        "channels": [
+            {"name": "Daraz", "priority": 1, "rationale": "largest marketplace"},
+            {"name": "TikTok", "priority": 2, "rationale": "creator discovery"},
+        ],
+    }
+
+    cards = build_recommendation_cards(strategy, business_state)
+
+    assert [card["type"] for card in cards] == ["positioning", "channels", "offer", "risk"]
+    assert cards[0]["confidence"] == "High"
+    assert cards[0]["evidence_refs"] == [
+        "marketing_decision_summary.selected_positioning",
+        "market_state.pricing_strategy",
+        "category_playbook.positioning",
+    ]
+    assert cards[1]["recommendation"] == "Daraz, TikTok"
+    assert cards[2]["evidence_refs"][-1] == "evidence_ledger"
+    assert all(isinstance(ref, str) and ref for card in cards for ref in card["evidence_refs"])
+
+
+def test_strategy_consistency_auto_corrects_contradictory_positioning():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", STRUCTURED_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    business_state = agent._build_business_state(perceived, STRUCTURED_ANALYTICS, enriched)
+    strategy = {
+        **MINIMAL_VALID_STRATEGY,
+        "marketing_mix": {
+            **MINIMAL_VALID_STRATEGY["marketing_mix"],
+            "price": {"strategy": "Premium", "recommended_sell_pkr": 38000},
+        },
+        "branding": {
+            "value_proposition": "Exclusive premium positioning",
+            "tone": "Luxury exclusive",
+            "tagline": "Own the premium lane",
+        },
+        "channels": [
+            {"name": "Instagram", "priority": 1, "rationale": "luxury brand feel"},
+        ],
+        "launch_plan": {
+            **MINIMAL_VALID_STRATEGY["launch_plan"],
+            "phases": [{"name": "Launch", "duration": "2 weeks", "actions": ["go premium"]}],
+        },
+    }
+
+    corrected = agent._apply_strategy_consistency(strategy, business_state)
+
+    assert corrected["marketing_mix"]["price"]["strategy"] == "Balanced"
+    assert "premium" not in corrected["branding"]["tone"].lower()
+    assert corrected["marketing_decision_summary"]["selected_positioning"] == "Mid-range Premium"
+    assert corrected["marketing_decision_summary"]["confidence"] == "High"
+
+
+def test_run_includes_marketing_decision_summary():
+    agent = _make_agent()
+    stored_row = {
+        "id": "xyz-123",
+        **MINIMAL_VALID_STRATEGY,
+        "product_name": "Sony WH-1000XM5",
+        "category": "headsets",
+        "created_at": "2026-04-12T00:00:00Z",
+    }
+
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama, \
+         _patch.object(agent.db, "insert_marketing_strategy", return_value=stored_row):
+        mock_ollama.Client.return_value.chat.return_value = _make_chat_response(
+            _json.dumps(MINIMAL_VALID_STRATEGY)
+        )
+        result = agent.run(
+            "Sony WH-1000XM5",
+            "headsets",
+            STRUCTURED_ANALYTICS,
+            VALID_SCRAPER,
+        )
+
+    assert result["id"] == "xyz-123"
+    assert result["marketing_decision_summary"]["selected_positioning"] == "Mid-range Premium"
+    assert result["marketing_mix"]["price"]["strategy"] == "Balanced"
 
 def test_generate_parses_valid_json_response():
     """Model returns clean JSON — parsed correctly via attribute access."""
@@ -421,3 +594,5 @@ def test_run_returns_strategy_with_id():
             VALID_ANALYTICS, VALID_SCRAPER,
         )
     assert result["id"] == "xyz-123"
+
+
