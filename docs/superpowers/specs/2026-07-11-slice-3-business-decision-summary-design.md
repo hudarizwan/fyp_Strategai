@@ -41,6 +41,7 @@ The playbook should remain deterministic and category-specific. Each category en
 - optional `risk_notes`
 
 The playbook stays as local application knowledge, not a separate ML system or external knowledge base.
+It must remain data only, not embedded decision logic.
 
 ### 2. Evidence-Backed Recommendation Cards
 Marketing should produce structured recommendation cards for the major business decisions it makes.
@@ -49,7 +50,7 @@ Each card should include:
 - the recommendation text
 - a confidence label
 - a short reason
-- references to evidence fields already available in the business state
+- references to existing evidence fields already available in the business state
 
 Examples of card types:
 - positioning
@@ -59,6 +60,7 @@ Examples of card types:
 - risk handling
 
 The card output should be deterministic and post-processed, not left to the LLM to invent from scratch.
+The cards should reference evidence using field paths or IDs rather than copying large blobs of source data.
 
 ### 3. Executive Summary
 Add `business_decision_summary` as a concise executive object in the final marketing response.
@@ -70,10 +72,13 @@ It should not duplicate the full pricing summary or marketing summary. Instead i
 - `top_strengths`
 - `major_risks`
 - `recommended_next_action`
-- `score_breakdown`
+- `decision_score_breakdown`
+- `approval_readiness`
 - `threshold_context`
 
 The score should be explainable, with a breakdown showing how pricing, marketing readiness, market opportunity, supplier quality, and confidence contributed to the final score.
+The overall score must be calculated by a documented deterministic weighting formula, not an arbitrary or learned value.
+The summary must stay compact and fit on one screen.
 
 ## Data Flow
 
@@ -99,6 +104,7 @@ The score should be explainable, with a breakdown showing how pricing, marketing
    - marketing readiness
    - resolved threshold tier and value
    - major risks and next action
+   - approval readiness derived from the existing decision logic
 
 ## Threshold Handling
 The executive summary should surface threshold context explicitly so users can see where the approval bar came from.
@@ -114,6 +120,7 @@ The summary should include:
 - `threshold_source_category`
 
 No new MCB API route is required for this slice.
+The executive summary must remain deterministic and must not invoke the LLM.
 
 ## API / Contract Rules
 Keep all existing request and response contracts compatible.
@@ -147,7 +154,9 @@ Add or extend tests to verify:
 2. Recommendation cards include evidence and confidence labels.
 3. The executive summary is concise and additive, not duplicative.
 4. The executive summary includes the resolved threshold source tier.
-5. Existing marketing and analytics tests still pass unchanged.
+5. The executive score uses the documented weighting formula.
+6. The executive summary includes `approval_readiness`.
+7. Existing marketing and analytics tests still pass unchanged.
 
 ## Success Criteria
 This slice is complete when:
