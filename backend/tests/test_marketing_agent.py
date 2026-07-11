@@ -48,14 +48,20 @@ def test_insert_marketing_strategy_returns_row():
             "confidence_score": 0.8,
         })
     assert result["id"] == "aaaa-1111"
-    mock_post.assert_called_once()
-    table_name, payload = mock_post.call_args.args
-    assert table_name == "marketing_strategies"
-    assert payload["product_name"] == "Headphones"
-    assert payload["category"] == "headsets"
-    assert payload["strategy"] == {"stp": {}}
-    assert payload["analysis_status"] == "ok"
-    assert payload["confidence_score"] == 0.8
+    mock_post.assert_called_once_with(
+        "marketing_strategies",
+        {
+            "product_name": "Headphones",
+            "category": "headsets",
+            "strategy": {"stp": {}},
+            "analysis_status": "ok",
+            "confidence_score": 0.8,
+            "version_number": 1,
+            "generation_type": "initial",
+            "is_latest": True,
+            "strategy_status": "generated",
+        },
+    )
 
 
 def test_get_marketing_history_returns_list():
@@ -331,11 +337,54 @@ def test_recommendation_cards_reference_evidence_paths_and_confidence():
     assert cards[0]["evidence_refs"] == [
         "marketing_decision_summary.selected_positioning",
         "market_state.pricing_strategy",
-        "category_playbook.positioning",
     ]
     assert cards[1]["recommendation"] == "Daraz, TikTok"
-    assert cards[2]["evidence_refs"][-1] == "evidence_ledger"
+    assert cards[1]["evidence_refs"] == [
+        "marketing_decision_summary.recommended_channels[0]",
+        "marketing_decision_summary.recommended_channels[1]",
+    ]
+    assert cards[2]["evidence_refs"] == [
+        "category_playbook.promotion_hooks[0]",
+        "category_playbook.buying_factors[0]",
+    ]
+    assert cards[3]["evidence_refs"] == ["category_playbook.risk_notes[0]"]
     assert all(isinstance(ref, str) and ref for card in cards for ref in card["evidence_refs"])
+
+
+def test_recommendation_cards_fall_back_to_stp_and_playbook_paths():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", STRUCTURED_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    business_state = agent._build_business_state(perceived, STRUCTURED_ANALYTICS, enriched)
+    strategy = {
+        **MINIMAL_VALID_STRATEGY,
+        "stp": {
+            "segmentation": {},
+            "targeting": {},
+            "positioning": {"statement": "Value-led offer focused on conversion and trust."},
+        },
+        "marketing_decision_summary": {
+            "selection_reason": ["Balanced pricing strategy selected"],
+            "confidence": "High",
+        },
+    }
+
+    cards = build_recommendation_cards(strategy, business_state)
+
+    assert cards[0]["evidence_refs"] == [
+        "stp.positioning.statement",
+        "market_state.pricing_strategy",
+    ]
+    assert cards[1]["evidence_refs"] == [
+        "category_playbook.primary_channels[0]",
+        "category_playbook.primary_channels[1]",
+        "category_playbook.primary_channels[2]",
+    ]
+    assert cards[2]["evidence_refs"] == [
+        "category_playbook.promotion_hooks[0]",
+        "category_playbook.buying_factors[0]",
+    ]
+    assert cards[3]["evidence_refs"] == ["category_playbook.risk_notes[0]"]
 
 
 def test_strategy_consistency_auto_corrects_contradictory_positioning():

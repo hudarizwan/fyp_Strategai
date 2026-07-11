@@ -228,6 +228,10 @@ def _build_recommendation_card(
     }
 
 
+def _index_refs(base: str, count: int) -> List[str]:
+    return [f"{base}[{index}]" for index in range(count)]
+
+
 def build_recommendation_cards(
     strategy: Dict[str, Any],
     business_state: Dict[str, Any],
@@ -239,83 +243,118 @@ def build_recommendation_cards(
     confidence = _card_confidence_from_business_state(business_state)
     cards: List[Dict[str, Any]] = []
 
-    positioning = str(
-        decision_summary.get("selected_positioning")
-        or strategy.get("stp", {}).get("positioning", {}).get("statement")
-        or playbook.get("positioning", "Value-for-Money")
-    ).strip()
+    selected_positioning = str(decision_summary.get("selected_positioning") or "").strip()
+    stp_positioning = str(strategy.get("stp", {}).get("positioning", {}).get("statement") or "").strip()
+    playbook_positioning = str(playbook.get("positioning", "Value-for-Money") or "").strip()
+    if selected_positioning:
+        positioning = selected_positioning
+        positioning_refs = ["marketing_decision_summary.selected_positioning", "market_state.pricing_strategy"]
+    elif stp_positioning:
+        positioning = stp_positioning
+        positioning_refs = ["stp.positioning.statement", "market_state.pricing_strategy"]
+    else:
+        positioning = playbook_positioning
+        positioning_refs = ["category_playbook.positioning", "market_state.pricing_strategy"]
     cards.append(
         _build_recommendation_card(
             card_type="positioning",
             recommendation=positioning,
             reason="Keep the offer aligned with the selected pricing posture and category playbook.",
-            evidence_refs=[
-                "marketing_decision_summary.selected_positioning",
-                "market_state.pricing_strategy",
-                "category_playbook.positioning",
-            ],
+            evidence_refs=positioning_refs,
             confidence=confidence,
         )
     )
 
-    channel_names = [
+    summary_channels = [
+        str(channel).strip()
+        for channel in (decision_summary.get("recommended_channels") or [])
+        if str(channel).strip()
+    ]
+    strategy_channels = [
         str(item.get("name") or "").strip()
         for item in (strategy.get("channels") or [])
         if isinstance(item, dict) and str(item.get("name") or "").strip()
     ]
-    if not channel_names:
-        channel_names = list(playbook.get("primary_channels", []))
+    playbook_channels = [
+        str(channel).strip()
+        for channel in (playbook.get("primary_channels") or [])
+        if str(channel).strip()
+    ]
+    if summary_channels:
+        channel_names = summary_channels[:3]
+        channel_refs = _index_refs("marketing_decision_summary.recommended_channels", len(channel_names))
+    elif strategy_channels:
+        channel_names = strategy_channels[:3]
+        channel_refs = [f"channels[{index}].name" for index in range(len(channel_names))]
+    else:
+        channel_names = playbook_channels[:3]
+        channel_refs = _index_refs("category_playbook.primary_channels", len(channel_names))
     cards.append(
         _build_recommendation_card(
             card_type="channels",
-            recommendation=", ".join(channel_names[:3]),
+            recommendation=", ".join(channel_names),
             reason="Prioritize channels that already appear in the strategy and category playbook.",
-            evidence_refs=[
-                "channels[0].name",
-                "category_playbook.primary_channels",
-                "marketing_decision_summary.recommended_channels",
-            ],
+            evidence_refs=channel_refs,
             confidence=confidence,
         )
     )
 
-    hooks = list(playbook.get("promotion_hooks", []))
-    buying_factors = list(playbook.get("buying_factors", []))
-    offer_focus = hooks[0] if hooks else playbook.get("tone", "Value")
-    if buying_factors:
-        offer_focus = f"{offer_focus} tied to {buying_factors[0]}"
+    hooks = [
+        str(hook).strip()
+        for hook in (playbook.get("promotion_hooks") or [])
+        if str(hook).strip()
+    ]
+    buying_factors = [
+        str(factor).strip()
+        for factor in (playbook.get("buying_factors") or [])
+        if str(factor).strip()
+    ]
+    if hooks:
+        offer_focus = hooks[0]
+        offer_refs = ["category_playbook.promotion_hooks[0]"]
+        if buying_factors:
+            offer_focus = f"{offer_focus} tied to {buying_factors[0]}"
+            offer_refs.append("category_playbook.buying_factors[0]")
+    else:
+        offer_focus = str(playbook.get("tone", "Value") or "").strip()
+        offer_refs = ["category_playbook.tone"]
     cards.append(
         _build_recommendation_card(
             card_type="offer",
             recommendation=offer_focus,
             reason="Use a proof-led offer that matches the main buyer concern in this category.",
-            evidence_refs=[
-                "category_playbook.promotion_hooks",
-                "category_playbook.buying_factors",
-                "evidence_ledger",
-            ],
+            evidence_refs=offer_refs,
             confidence=confidence,
         )
     )
 
-    risk_notes = list(playbook.get("risk_notes", []))
-    risk_focus = risk_notes[0] if risk_notes else "Maintain conservative launch scope."
+    risk_notes = [
+        str(note).strip()
+        for note in (playbook.get("risk_notes") or [])
+        if str(note).strip()
+    ]
+    if risk_notes:
+        risk_focus = risk_notes[0]
+        risk_refs = ["category_playbook.risk_notes[0]"]
+    else:
+        market_risk = str(market_state.get("risk") or "").strip()
+        if market_risk:
+            risk_focus = f"Manage for {market_risk.lower()} risk."
+            risk_refs = ["market_state.risk"]
+        else:
+            risk_focus = "Maintain conservative launch scope."
+            risk_refs = ["signals.confidence_band"]
     cards.append(
         _build_recommendation_card(
             card_type="risk",
             recommendation=risk_focus,
             reason="Keep the launch plan aligned with the category's main friction point.",
-            evidence_refs=[
-                "category_playbook.risk_notes",
-                "market_state.risk",
-                "signals.confidence_band",
-            ],
+            evidence_refs=risk_refs,
             confidence=confidence,
         )
     )
 
     return cards
-
 
 def build_business_state(
     perceived: Dict[str, Any],
