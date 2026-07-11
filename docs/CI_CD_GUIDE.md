@@ -4,7 +4,6 @@
 
 The pull request workflow runs:
 
-- checkout with recursive submodules
 - backend tests
 - backend type/syntax checks
 - frontend linting
@@ -16,7 +15,6 @@ The pull request workflow runs:
 
 The main branch workflow repeats the validation steps and then deploys:
 
-- checkout with recursive submodules
 - backend via Render deploy hook
 - frontend via Vercel deployment
 

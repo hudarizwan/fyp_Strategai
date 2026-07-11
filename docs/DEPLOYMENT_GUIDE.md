@@ -9,19 +9,20 @@
 
 ## Backend deploy steps on Render
 
-1. Create a new Web Service from the repository. If you are using the monorepo checkout, make sure submodules are fetched recursively so `frontend/salik-frontend` is available.
+1. Create a new Web Service from the repository.
 2. Point Render at `backend/Dockerfile`.
-3. Set the health check path to `/readiness`.
+3. Set the health check path to `/liveness`.
 4. Add the required environment variables from `.env.example`.
-5. Set `OLLAMA_BASE_URL` to a reachable Ollama server. Render will inject the service `PORT`; do not hardcode a fixed port in the service settings.
+5. Set `SUPABASE_DB_URL` and the other Supabase credentials for your project.
 6. Deploy.
 
 ## Frontend deploy steps on Vercel
 
-1. Import the frontend project from `frontend/salik-frontend`. If cloning manually, run `git submodule update --init --recursive` first so the frontend files are present.
+1. Import the frontend project from `frontend/salik-frontend`.
 2. Set the framework to Vite if prompted.
 3. Add the Vite environment variables from `.env.example`.
-4. Deploy.
+4. Set `VITE_API_BASE_URL` to the deployed backend URL.
+5. Deploy.
 
 ## Local smoke checks
 
