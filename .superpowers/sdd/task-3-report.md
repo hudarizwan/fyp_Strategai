@@ -6,3 +6,4 @@
   - `Set-Location backend; $env:PYTHONPATH = (Get-Location).Path; python -m pytest tests/test_marketing_agent.py -k "business_decision_summary or run_includes_marketing_decision_summary" -v` -> 2 passed.
   - `Set-Location backend; $env:PYTHONPATH = (Get-Location).Path; python -m pytest tests/test_business_decision_summary.py -v` -> 3 passed.
 - Fixed marketing_decision_summary preservation by making _ensure_marketing_decision_summary() idempotent, and added a regression test confirming an existing summary survives the run path unchanged.
+- 2026-07-11: Preserved marketing_decision_summary through run(), normalized fallback evidence_ledger entries to dict objects, and verified the targeted preservation/summary tests pass.

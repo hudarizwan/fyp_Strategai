@@ -444,7 +444,39 @@ def test_ensure_marketing_decision_summary_preserves_existing_summary():
     mock_build.assert_not_called()
 
 
-def test_run_includes_marketing_decision_summary():
+def test_build_business_state_emits_object_evidence_ledger():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", STRUCTURED_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+
+    business_state = agent._build_business_state(perceived, STRUCTURED_ANALYTICS, enriched)
+
+    assert business_state["evidence_ledger"]
+    assert all(isinstance(entry, dict) for entry in business_state["evidence_ledger"])
+    assert all(isinstance(entry.get("evidence"), list) for entry in business_state["evidence_ledger"])
+
+
+def test_ensure_evidence_ledger_normalizes_mixed_entries():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", STRUCTURED_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    business_state = agent._build_business_state(perceived, STRUCTURED_ANALYTICS, enriched)
+
+    strategy = {
+        **MINIMAL_VALID_STRATEGY,
+        "evidence_ledger": [
+            "legacy string evidence",
+            {"recommendation": "Keep this entry", "evidence": ["already structured"]},
+        ],
+    }
+
+    result = agent._ensure_evidence_ledger(strategy, enriched, business_state)
+
+    assert all(isinstance(entry, dict) for entry in result["evidence_ledger"])
+    assert any(entry["recommendation"] == "legacy string evidence" and entry["evidence"] == [] for entry in result["evidence_ledger"])
+
+
+def test_run_preserves_preexisting_marketing_decision_summary():
     agent = _make_agent()
     stored_row = {
         "id": "xyz-123",
@@ -453,11 +485,21 @@ def test_run_includes_marketing_decision_summary():
         "category": "headsets",
         "created_at": "2026-04-12T00:00:00Z",
     }
+    existing_summary = {
+        "selected_positioning": "Mid-range Premium",
+        "selection_reason": ["keep this summary"],
+        "recommended_channels": ["Daraz", "TikTok"],
+        "confidence": "High",
+    }
+    strategy_from_llm = {
+        **MINIMAL_VALID_STRATEGY,
+        "marketing_decision_summary": existing_summary,
+    }
 
     with _patch("app.services.marketing_agent.ollama") as mock_ollama, \
          _patch.object(agent.db, "insert_marketing_strategy", return_value=stored_row):
         mock_ollama.Client.return_value.chat.return_value = _make_chat_response(
-            _json.dumps(MINIMAL_VALID_STRATEGY)
+            _json.dumps(strategy_from_llm)
         )
         result = agent.run(
             "Sony WH-1000XM5",
@@ -467,9 +509,8 @@ def test_run_includes_marketing_decision_summary():
         )
 
     assert result["id"] == "xyz-123"
-    assert result["marketing_decision_summary"]["selected_positioning"] == "Mid-range Premium"
+    assert result["marketing_decision_summary"] == existing_summary
     assert result["marketing_mix"]["price"]["strategy"] == "Balanced"
-
 
 def test_run_attaches_business_decision_summary():
     agent = _make_agent()
@@ -709,5 +750,3 @@ def test_run_returns_strategy_with_id():
             VALID_ANALYTICS, VALID_SCRAPER,
         )
     assert result["id"] == "xyz-123"
-
-

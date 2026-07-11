@@ -418,11 +418,31 @@ def build_business_state(
     }
 
     evidence_ledger = [
-        f"Pricing strategy selected: {market_state['pricing_strategy']}",
-        f"Competition signal: {market_state['competition']}",
-        f"Demand signal: {market_state['demand']}",
-        f"Profitability signal: {market_state['profitability']}",
-        f"Category playbook: {category_playbook['category_key']}",
+        {
+            "section": "pricing",
+            "recommendation": f"Pricing strategy selected: {market_state['pricing_strategy']}",
+            "evidence": ["market_state.pricing_strategy", "market_state.demand", "market_state.competition"],
+        },
+        {
+            "section": "competition",
+            "recommendation": f"Competition signal: {market_state['competition']}",
+            "evidence": ["market_state.competition", "signals.confidence_band"],
+        },
+        {
+            "section": "demand",
+            "recommendation": f"Demand signal: {market_state['demand']}",
+            "evidence": ["market_state.demand", "signals.confidence_band"],
+        },
+        {
+            "section": "profitability",
+            "recommendation": f"Profitability signal: {market_state['profitability']}",
+            "evidence": ["market_state.profitability", "market_state.risk"],
+        },
+        {
+            "section": "category_playbook",
+            "recommendation": f"Category playbook: {category_playbook['category_key']}",
+            "evidence": ["category_playbook.category_key", "category_playbook.positioning", "category_playbook.primary_channels"],
+        },
     ]
 
     strategy_guardrails = [
@@ -587,7 +607,8 @@ def apply_strategy_consistency(strategy: Dict[str, Any], business_state: Dict[st
         if result["channels"] != channels:
             corrections.append("reconciled channel list with playbook")
 
-    result["marketing_decision_summary"] = build_marketing_decision_summary(result, business_state)
+    if "marketing_decision_summary" not in result:
+        result["marketing_decision_summary"] = build_marketing_decision_summary(result, business_state)
     result["marketing_consistency_report"] = {
         "status": "auto_corrected" if corrections else "pass",
         "checks": [

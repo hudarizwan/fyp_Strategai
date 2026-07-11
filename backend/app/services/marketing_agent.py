@@ -353,37 +353,64 @@ Required JSON structure (fill every field Ã¢â‚¬â€ no nulls, no empty 
         business_state: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """If model returned empty evidence_ledger, build it from structured context."""
-        if strategy.get("evidence_ledger"):
-            return strategy
+        def _normalize_entry(entry: Any) -> Optional[Dict[str, Any]]:
+            if isinstance(entry, dict):
+                recommendation = str(entry.get("recommendation") or "").strip()
+                if not recommendation:
+                    return None
+                normalized = dict(entry)
+                normalized["recommendation"] = recommendation
+                evidence = normalized.get("evidence")
+                if isinstance(evidence, list):
+                    normalized["evidence"] = [str(item) for item in evidence if str(item).strip()]
+                else:
+                    normalized["evidence"] = []
+                return normalized
+            recommendation = str(entry or "").strip()
+            if not recommendation:
+                return None
+            return {"recommendation": recommendation, "evidence": []}
+
+        built_ledger = list((business_state or {}).get("evidence_ledger") or [])
+        if not built_ledger:
+            price_band = enriched.get("price_band") or {}
+            if price_band.get("min") or price_band.get("max"):
+                built_ledger.append({
+                    "recommendation": f"Price between PKR {price_band.get('min',0):,.0f} and PKR {price_band.get('max',0):,.0f} based on retail market",
+                    "evidence": ["price_band", "retail_sellers_count"],
+                })
+            origins = enriched.get("wholesale_origins") or []
+            if origins:
+                built_ledger.append({
+                    "recommendation": f"Source from {', '.join(origins[:3])} wholesale channels",
+                    "evidence": ["wholesale_origins", "moq_range"],
+                })
+            platforms = enriched.get("platform_distribution") or {}
+            if platforms:
+                top = max(platforms, key=platforms.get)
+                built_ledger.append({
+                    "recommendation": f"Prioritise {top} for primary sales channel",
+                    "evidence": ["platform_distribution", "competitor_names"],
+                })
+            if not built_ledger:
+                built_ledger.append({
+                    "recommendation": f"Buy at PKR {enriched.get('buy_price_pkr',0):,.0f}, sell at PKR {enriched.get('sell_price_pkr',0):,.0f} for {enriched.get('margin_percent',0):.1f}% margin",
+                    "evidence": ["buy_price_pkr", "sell_price_pkr", "margin_percent"],
+                })
+        existing_ledger = strategy.get("evidence_ledger") or []
+        combined: List[Dict[str, Any]] = []
+        seen = set()
+        for entry in built_ledger + list(existing_ledger):
+            normalized = _normalize_entry(entry)
+            if not normalized:
+                continue
+            key = normalized["recommendation"].lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            combined.append(normalized)
         strategy = dict(strategy)
-        ledger = []
-        if business_state:
-            ledger.extend(business_state.get("evidence_ledger") or [])
-        price_band = enriched.get("price_band") or {}
-        if price_band.get("min") or price_band.get("max"):
-            ledger.append({
-                "recommendation": f"Price between PKR {price_band.get('min',0):,.0f}?{price_band.get('max',0):,.0f} based on retail market",
-                "evidence": ["price_band", "retail_sellers_count"],
-            })
-        origins = enriched.get("wholesale_origins") or []
-        if origins:
-            ledger.append({
-                "recommendation": f"Source from {', '.join(origins[:3])} wholesale channels",
-                "evidence": ["wholesale_origins", "moq_range"],
-            })
-        platforms = enriched.get("platform_distribution") or {}
-        if platforms:
-            top = max(platforms, key=platforms.get)
-            ledger.append({
-                "recommendation": f"Prioritise {top} for primary sales channel",
-                "evidence": ["platform_distribution", "competitor_names"],
-            })
-        if not ledger:
-            ledger.append({
-                "recommendation": f"Buy at PKR {enriched.get('buy_price_pkr',0):,.0f}, sell at PKR {enriched.get('sell_price_pkr',0):,.0f} for {enriched.get('margin_percent',0):.1f}% margin",
-                "evidence": ["buy_price_pkr", "sell_price_pkr", "margin_percent"],
-            })
-        strategy["evidence_ledger"] = ledger
+        strategy["evidence_ledger"] = combined
         return strategy
 
     def _ensure_kpis(
@@ -543,4 +570,3 @@ Required JSON structure (fill every field Ã¢â‚¬â€ no nulls, no empty 
                 product_name,
             )
         return {**stored, **strategy}
-
