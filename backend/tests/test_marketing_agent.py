@@ -220,7 +220,7 @@ def test_enrich_extracts_review_themes():
 
 
 # ---------------------------------------------------------------------------
-# Generate — uses attribute-access mock to match real ollama ChatResponse
+# Generate â€” uses attribute-access mock to match real ollama ChatResponse
 # ---------------------------------------------------------------------------
 
 import json as _json
@@ -446,8 +446,50 @@ def test_run_includes_marketing_decision_summary():
     assert result["marketing_decision_summary"]["selected_positioning"] == "Mid-range Premium"
     assert result["marketing_mix"]["price"]["strategy"] == "Balanced"
 
+
+def test_run_attaches_business_decision_summary():
+    agent = _make_agent()
+    stored_row = {
+        "id": "xyz-123",
+        **MINIMAL_VALID_STRATEGY,
+        "product_name": "Sony WH-1000XM5",
+        "category": "headsets",
+        "created_at": "2026-04-12T00:00:00Z",
+    }
+
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama, \
+         _patch.object(agent.db, "resolve_mcb_confidence_threshold", return_value={
+             "confidence_threshold": 0.70,
+             "threshold_source_tier": "exact category",
+             "threshold_source_category": "headsets",
+         }), _patch.object(agent.db, "insert_marketing_strategy", return_value=stored_row):
+        mock_ollama.Client.return_value.chat.return_value = _make_chat_response(
+            _json.dumps(MINIMAL_VALID_STRATEGY)
+        )
+        result = agent.run(
+            "Sony WH-1000XM5",
+            "headsets",
+            STRUCTURED_ANALYTICS,
+            VALID_SCRAPER,
+        )
+
+    assert result["marketing_decision_summary"]["selected_positioning"] == "Mid-range Premium"
+    assert "business_decision_summary" in result
+    assert result["business_decision_summary"]["threshold_context"]["threshold_source_tier"] in {
+        "exact category",
+        "general_retail",
+        "hardcoded 0.70",
+    }
+    assert result["business_decision_summary"]["approval_readiness"] in {
+        "READY",
+        "CAUTION",
+        "REVIEW",
+        "DO_NOT_LAUNCH",
+    }
+
+
 def test_generate_parses_valid_json_response():
-    """Model returns clean JSON — parsed correctly via attribute access."""
+    """Model returns clean JSON â€” parsed correctly via attribute access."""
     agent = _make_agent()
     perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
     enriched = agent._enrich(perceived, VALID_SCRAPER)
@@ -463,7 +505,7 @@ def test_generate_parses_valid_json_response():
 
 
 def test_generate_extracts_json_from_fenced_prose():
-    """Model wraps JSON in markdown fences — _extract_json recovers it."""
+    """Model wraps JSON in markdown fences â€” _extract_json recovers it."""
     agent = _make_agent()
     perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
     enriched = agent._enrich(perceived, VALID_SCRAPER)
@@ -477,7 +519,7 @@ def test_generate_extracts_json_from_fenced_prose():
 
 
 def test_generate_extracts_json_from_bare_prose():
-    """Model adds leading sentence before JSON — rfind approach recovers outermost {}."""
+    """Model adds leading sentence before JSON â€” rfind approach recovers outermost {}."""
     agent = _make_agent()
     perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
     enriched = agent._enrich(perceived, VALID_SCRAPER)
@@ -491,7 +533,7 @@ def test_generate_extracts_json_from_bare_prose():
 
 
 def test_generate_returns_invalid_on_unparseable_response():
-    """Model returns non-JSON text — degraded strategy with analysis_status=invalid."""
+    """Model returns non-JSON text â€” degraded strategy with analysis_status=invalid."""
     agent = _make_agent()
     perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
     enriched = agent._enrich(perceived, VALID_SCRAPER)
@@ -506,7 +548,7 @@ def test_generate_returns_invalid_on_unparseable_response():
 
 
 def test_generate_propagates_ollama_connection_error():
-    """Ollama connection error propagates — not silently swallowed."""
+    """Ollama connection error propagates â€” not silently swallowed."""
     agent = _make_agent()
     perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
     enriched = agent._enrich(perceived, VALID_SCRAPER)
@@ -577,7 +619,7 @@ def test_critic_returns_improved_strategy():
         "validation_report": {
             "status": "needs_review",
             "checks": [],
-            # Hard flag — missing_key triggers critic (not a soft flag)
+            # Hard flag â€” missing_key triggers critic (not a soft flag)
             "flags": ["missing_key:channels"],
         },
         "channels": [],
@@ -592,7 +634,7 @@ def test_critic_returns_improved_strategy():
 
 
 def test_critic_skips_for_soft_flags_only():
-    """Critic is NOT called when all flags are soft (evidence_ledger, kpis) — saves Ollama call."""
+    """Critic is NOT called when all flags are soft (evidence_ledger, kpis) â€” saves Ollama call."""
     agent = _make_agent()
     perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
     enriched = agent._enrich(perceived, VALID_SCRAPER)

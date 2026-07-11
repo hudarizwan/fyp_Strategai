@@ -1,7 +1,7 @@
 """
 Marketing Agent for StrategAI.
 
-Lifecycle: Perceive → Enrich → Generate → Validate → Critic → Store
+Lifecycle: Perceive Ã¢â€ â€™ Enrich Ã¢â€ â€™ Generate Ã¢â€ â€™ Validate Ã¢â€ â€™ Critic Ã¢â€ â€™ Store
 Uses local Ollama (llama3.1:8b) for two LLM passes.
 """
 from __future__ import annotations
@@ -12,7 +12,9 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
+from app.services.business_decision_summary import build_business_decision_summary
 from app.services.ecdb import ECDB
+from app.services import marketing_prompt_builder
 import ollama
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,7 @@ Pakistan e-commerce context (apply throughout):
 - COD (Cash on Delivery) is the dominant payment method (~70% of orders).
 - Daraz is the primary marketplace. TikTok Shop and Instagram are fast-growing.
 - Warranty and authenticity are top buyer concerns, especially for electronics.
-- Logistics: J&T, Leopards, TCS — standard delivery 2-5 days.
+- Logistics: J&T, Leopards, TCS Ã¢â‚¬â€ standard delivery 2-5 days.
 - Price sensitivity is high; bundle offers and free delivery improve conversion.
 - Peak seasons: Eid-ul-Fitr, Eid-ul-Adha, Black Friday, Independence Day (14 Aug).
 - Trust signals (genuine warranty, seller ratings, return policy) are critical.
@@ -69,18 +71,30 @@ class MarketingAgent:
     ) -> Dict[str, Any]:
         perceived = self._perceive(product_name, category, analytics_result)
         enriched = self._enrich(perceived, scraper_result)
-        # _generate raises on Ollama connection errors — propagates to API as 502
-        raw_strategy = self._generate(enriched)
+        business_state = self._build_business_state(perceived, analytics_result, enriched)
+        generation_input = self._build_generation_input(perceived, enriched, business_state)
+        # _generate raises on Ollama connection errors ? propagates to API as 502
+        raw_strategy = self._generate(generation_input)
         # Populate evidence_ledger from enriched data if model left it empty
         # (avoids a full second Ollama critic call for this soft flag alone)
-        raw_strategy = self._ensure_evidence_ledger(raw_strategy, enriched)
+        raw_strategy = self._ensure_evidence_ledger(raw_strategy, enriched, business_state)
         raw_strategy = self._ensure_kpis(raw_strategy, perceived)
         validated = self._validate(raw_strategy, perceived)
         final = self._critic(validated, enriched)
+        final = self._apply_strategy_consistency(final, business_state)
+        final = self._ensure_marketing_decision_summary(final, business_state)
+        final["marketing_readiness_score"] = marketing_prompt_builder.build_marketing_readiness_score(final, business_state)
+        threshold_context = self.db.resolve_mcb_confidence_threshold(category)
+        final["business_decision_summary"] = build_business_decision_summary(
+            analytics_result,
+            final,
+            threshold_context,
+        )
+        final = self._validate(final, perceived)
         return self._store(final, product_name, category, pipeline_run_id)
 
     # ------------------------------------------------------------------
-    # Step 1 — Perceive
+    # Step 1 Ã¢â‚¬â€ Perceive
     # ------------------------------------------------------------------
 
     def _perceive(
@@ -119,7 +133,7 @@ class MarketingAgent:
         }
 
     # ------------------------------------------------------------------
-    # Step 2 — Enrich
+    # Step 2 Ã¢â‚¬â€ Enrich
     # ------------------------------------------------------------------
 
     def _enrich(
@@ -186,18 +200,68 @@ class MarketingAgent:
         }
 
     # ------------------------------------------------------------------
-    # Step 3 — Generate (Ollama call #1)
+
+    def _build_business_state(
+        self,
+        perceived: Dict[str, Any],
+        analytics_result: Dict[str, Any],
+        enriched: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return marketing_prompt_builder.build_business_state(perceived, analytics_result, enriched)
+
+    def _build_generation_input(
+        self,
+        perceived: Dict[str, Any],
+        enriched: Optional[Dict[str, Any]] = None,
+        business_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return marketing_prompt_builder.build_generation_input(perceived, enriched, business_state)
+
+    def _apply_strategy_consistency(
+        self,
+        strategy: Dict[str, Any],
+        business_state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return marketing_prompt_builder.apply_strategy_consistency(strategy, business_state)
+
+    def _ensure_marketing_decision_summary(
+        self,
+        strategy: Dict[str, Any],
+        business_state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        strategy = dict(strategy)
+        strategy["marketing_decision_summary"] = marketing_prompt_builder.build_marketing_decision_summary(
+            strategy,
+            business_state,
+        )
+        return strategy
+    # Step 3 Ã¢â‚¬â€ Generate (Ollama call #1)
     # ------------------------------------------------------------------
 
     def _generate(self, enriched: Dict[str, Any]) -> Dict[str, Any]:
+        if "market_state" not in enriched:
+            legacy_perceived = {
+                "product_name": enriched.get("product_name", ""),
+                "category": enriched.get("category", ""),
+                "buy_price_pkr": enriched.get("buy_price_pkr", enriched.get("recommended_buy_price_pkr", 0.0)),
+                "sell_price_pkr": enriched.get("sell_price_pkr", enriched.get("recommended_sell_price_pkr", 0.0)),
+                "margin_percent": enriched.get("margin_percent", enriched.get("expected_profit_margin", 0.0)),
+                "confidence_score": enriched.get("confidence_score", 0.0),
+                "confidence_reason": enriched.get("confidence_reason", ""),
+                "vendor_count": enriched.get("vendor_count", enriched.get("wholesale_vendors_count", 0)),
+                "seller_count": enriched.get("seller_count", enriched.get("retail_sellers_count", 0)),
+                "price_spread": enriched.get("price_spread", 0.0),
+            }
+            business_state = self._build_business_state(legacy_perceived, enriched, enriched)
+            enriched = self._build_generation_input(legacy_perceived, enriched, business_state)
         system_prompt = self._build_system_prompt()
         user_content = (
             "Generate a complete marketing strategy for this product. "
             "Your entire response must be a single JSON object matching the schema. "
-            "No prose, no markdown fences, no explanation — JSON only.\n\n"
+            "No prose, no markdown fences, no explanation - JSON only.\n\n"
             f"INPUT DATA:\n{json.dumps(enriched, indent=2)}"
         )
-        # Connection/timeout errors propagate — caller (API) maps them to 502
+        # Connection/timeout errors propagate ??? caller (API) maps them to 502
         client = ollama.Client(host=self.ollama_base_url)
         response = client.chat(
             model=self.model,
@@ -208,7 +272,7 @@ class MarketingAgent:
             format="json",  # Constrains model to valid JSON output
             options={"temperature": 0.3, "num_ctx": 4096},
         )
-        # response is a ChatResponse Pydantic object — use attribute access, not []
+        # response is a ChatResponse Pydantic object ??? use attribute access, not []
         raw_text = response.message.content
         result = self._extract_json(raw_text)
         if result.get("analysis_status") == "invalid":
@@ -219,18 +283,19 @@ class MarketingAgent:
         return result
 
     def _build_system_prompt(self) -> str:
-        return f"""You are a senior marketing strategist for Pakistan e-commerce. Respond with ONE JSON object only — no prose, no markdown.
+        return f"""You are a senior marketing strategist for Pakistan e-commerce. Respond with ONE JSON object only Ã¢â‚¬â€ no prose, no markdown.
 
 {PAKISTAN_CONTEXT}
 
 Rules:
 - Keep ALL string values SHORT (1-2 sentences max).
 - Use arrays of strings for lists (strengths, weaknesses, etc.).
-- Prices in marketing_mix.price must match buy_price_pkr/sell_price_pkr from input.
+- Follow the structured market_state, category_playbook, strategy_guardrails, evidence_ledger, and signal_summary in the input.
+- Prices in marketing_mix.price must match the structured input's sell price.
 - confidence_score must be between 0.0 and 1.0.
 - Set analysis_status to "ok".
 
-Required JSON structure (fill every field — no nulls, no empty strings):
+Required JSON structure (fill every field Ã¢â‚¬â€ no nulls, no empty strings):
 {{"stp":{{"segmentation":{{"demographics":"","psychographics":""}},"targeting":{{"primary_segment":""}},"positioning":{{"statement":""}}}},"swot":{{"strengths":[""],"weaknesses":[""],"opportunities":[""],"threats":[""]}},"pestel":{{"political":"","economic":"","social":"","technological":"","environmental":"","legal":""}},"competitor_analysis":{{"five_forces":{{"supplier_power":"","buyer_power":"","competitive_rivalry":"","threat_of_substitutes":"","threat_of_new_entrants":""}},"key_competitors":[""],"price_band":{{"min":0,"max":0,"currency":"PKR"}}}},"marketing_mix":{{"product":{{"description":"","usp":""}},"price":{{"strategy":"","recommended_sell_pkr":0}},"place":{{"channels":[""]}},"promotion":{{"tactics":[""]}}}},"branding":{{"value_proposition":"","tone":"","tagline":""}},"channels":[{{"name":"","priority":1,"rationale":""}}],"content_strategy":{{"formats":[""],"frequency":""}},"launch_plan":{{"phases":[{{"name":"","duration":"","actions":[""]}}],"kpis":[{{"metric":"","target":0,"period":""}}],"measurement_plan":{{"tools":[""],"cadence":""}}}},"growth_funnel":{{"model":"AARRR","stages":[{{"stage":"","metric":"","target":0}}]}},"evidence_ledger":[{{"recommendation":"","evidence":[""]}}],"validation_report":{{"status":"ok","checks":[],"flags":[]}},"confidence_score":0.75,"analysis_status":"ok"}}"""
 
     def _extract_json(self, text: str) -> Dict[str, Any]:
@@ -276,21 +341,26 @@ Required JSON structure (fill every field — no nulls, no empty strings):
         }
 
     # ------------------------------------------------------------------
-    # Post-generate enrichment (no LLM) — prevents unnecessary critic pass
+    # Post-generate enrichment (no LLM) Ã¢â‚¬â€ prevents unnecessary critic pass
     # ------------------------------------------------------------------
 
     def _ensure_evidence_ledger(
-        self, strategy: Dict[str, Any], enriched: Dict[str, Any]
+        self,
+        strategy: Dict[str, Any],
+        enriched: Dict[str, Any],
+        business_state: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """If model returned empty evidence_ledger, build it from enriched context."""
+        """If model returned empty evidence_ledger, build it from structured context."""
         if strategy.get("evidence_ledger"):
             return strategy
         strategy = dict(strategy)
         ledger = []
+        if business_state:
+            ledger.extend(business_state.get("evidence_ledger") or [])
         price_band = enriched.get("price_band") or {}
         if price_band.get("min") or price_band.get("max"):
             ledger.append({
-                "recommendation": f"Price between PKR {price_band.get('min',0):,.0f}–{price_band.get('max',0):,.0f} based on retail market",
+                "recommendation": f"Price between PKR {price_band.get('min',0):,.0f}?{price_band.get('max',0):,.0f} based on retail market",
                 "evidence": ["price_band", "retail_sellers_count"],
             })
         origins = enriched.get("wholesale_origins") or []
@@ -333,7 +403,7 @@ Required JSON structure (fill every field — no nulls, no empty strings):
         return strategy
 
     # ------------------------------------------------------------------
-    # Step 4 — Validate (Python)
+    # Step 4 Ã¢â‚¬â€ Validate (Python)
     # ------------------------------------------------------------------
 
     def _validate(
@@ -400,7 +470,7 @@ Required JSON structure (fill every field — no nulls, no empty strings):
         return strategy
 
     # ------------------------------------------------------------------
-    # Step 5 — Critic (Ollama call #2)
+    # Step 5 Ã¢â‚¬â€ Critic (Ollama call #2)
     # ------------------------------------------------------------------
 
     def _critic(
@@ -417,13 +487,13 @@ Required JSON structure (fill every field — no nulls, no empty strings):
         SOFT_FLAG_PREFIXES = ("evidence_ledger", "launch_plan.kpis", "confidence_score out of range")
         hard_flags = [f for f in flags if not any(f.startswith(p) for p in SOFT_FLAG_PREFIXES)]
         if not hard_flags:
-            logger.info("Critic skipped — all flags are soft (handled by Python post-processing)")
+            logger.info("Critic skipped Ã¢â‚¬â€ all flags are soft (handled by Python post-processing)")
             return strategy
 
         critic_prompt = (
             "You are a critical reviewer. The marketing strategy below has validation issues. "
             "Fix ONLY the flagged problems. Return the corrected strategy as a single JSON object. "
-            "No prose, no markdown, no explanation — JSON only.\n\n"
+            "No prose, no markdown, no explanation Ã¢â‚¬â€ JSON only.\n\n"
             f"FLAGS:\n{json.dumps(flags)}\n\n"
             f"STRATEGY:\n{json.dumps(strategy)}"
         )
@@ -435,17 +505,17 @@ Required JSON structure (fill every field — no nulls, no empty strings):
                 format="json",
                 options={"temperature": 0.1, "num_ctx": 4096},
             )
-            # response is a ChatResponse Pydantic object — use attribute access, not []
+            # response is a ChatResponse Pydantic object Ã¢â‚¬â€ use attribute access, not []
             raw_text = response.message.content
             improved = self._extract_json(raw_text)
             if improved.get("analysis_status") != "invalid" and improved.get("stp"):
                 return improved
         except Exception as exc:
-            logger.warning("Critic pass failed: %s — keeping validated strategy", exc)
+            logger.warning("Critic pass failed: %s Ã¢â‚¬â€ keeping validated strategy", exc)
         return strategy
 
     # ------------------------------------------------------------------
-    # Step 6 — Store
+    # Step 6 Ã¢â‚¬â€ Store
     # ------------------------------------------------------------------
 
     def _store(
@@ -467,7 +537,8 @@ Required JSON structure (fill every field — no nulls, no empty strings):
         stored = self.db.insert_marketing_strategy(payload)
         if not stored.get("id"):
             logger.error(
-                "DB insert returned no id for product=%r — Supabase insert may have failed silently (RLS?)",
+                "DB insert returned no id for product=%r Ã¢â‚¬â€ Supabase insert may have failed silently (RLS?)",
                 product_name,
             )
         return {**stored, **strategy}
+

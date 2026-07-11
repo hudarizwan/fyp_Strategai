@@ -627,3 +627,36 @@ def build_marketing_decision_summary(strategy: Dict[str, Any], business_state: D
         "recommended_channels": channels[:3],
         "confidence": market_state.get("confidence", "MEDIUM").title(),
     }
+
+def build_marketing_readiness_score(strategy: Dict[str, Any], business_state: Dict[str, Any]) -> int:
+    market_state = business_state.get("market_state") or {}
+    consistency_report = strategy.get("marketing_consistency_report") or {}
+    channels = [
+        item
+        for item in (strategy.get("channels") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
+    launch_plan = strategy.get("launch_plan") or {}
+    phases = launch_plan.get("phases") or []
+    kpis = launch_plan.get("kpis") or []
+
+    readiness = 30.0
+    readiness += {
+        "HIGH": 25.0,
+        "MEDIUM": 15.0,
+        "LOW": 5.0,
+    }.get(str(market_state.get("confidence") or "LOW").strip().upper(), 5.0)
+    readiness += {
+        "pass": 20.0,
+        "auto_corrected": 10.0,
+    }.get(str(consistency_report.get("status") or "").strip().lower(), 0.0)
+    readiness += min(len(channels), 3) * 7.0
+    readiness += 10.0 if phases else 0.0
+    readiness += 10.0 if kpis else 0.0
+
+    if str(market_state.get("risk") or "").strip().upper() == "HIGH":
+        readiness -= 10.0
+    if str(market_state.get("competition") or "").strip().upper() == "HIGH":
+        readiness -= 5.0
+
+    return int(max(0, min(100, round(readiness))))
