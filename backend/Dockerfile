@@ -29,6 +29,6 @@ RUN python -m playwright install --with-deps chromium
 
 EXPOSE 8001
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3   CMD curl -fsS http://127.0.0.1:${PORT:-8001}/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3   CMD curl -fsS http://127.0.0.1:${PORT:-8001}/liveness || exit 1
 
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8001}"]

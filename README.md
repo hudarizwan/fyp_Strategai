@@ -2,6 +2,8 @@
 
 StrategAI is an AI-powered e-commerce profit optimization system built with a React + Vite frontend, a FastAPI backend, Supabase PostgreSQL, and Ollama for local LLM tasks.
 
+If you clone this repository manually, run `git submodule update --init --recursive` so the frontend workspace is available.
+
 ## Production Targets
 
 - Frontend: Vercel

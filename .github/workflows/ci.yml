@@ -22,6 +22,8 @@ jobs:
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -56,6 +58,8 @@ jobs:
       VITE_SUPABASE_ANON_KEY: test-anon-key
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Node
         uses: actions/setup-node@v4
