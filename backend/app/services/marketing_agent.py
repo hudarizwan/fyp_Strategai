@@ -371,6 +371,23 @@ Required JSON structure (fill every field Ã¢â‚¬â€ no nulls, no empty 
                 return None
             return {"recommendation": recommendation, "evidence": []}
 
+        existing_ledger = strategy.get("evidence_ledger") or []
+        if existing_ledger:
+            normalized_ledger = []
+            seen = set()
+            for entry in existing_ledger:
+                normalized = _normalize_entry(entry)
+                if not normalized:
+                    continue
+                key = normalized["recommendation"].lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                normalized_ledger.append(normalized)
+            strategy = dict(strategy)
+            strategy["evidence_ledger"] = normalized_ledger
+            return strategy
+
         built_ledger = list((business_state or {}).get("evidence_ledger") or [])
         if not built_ledger:
             price_band = enriched.get("price_band") or {}
@@ -397,10 +414,9 @@ Required JSON structure (fill every field Ã¢â‚¬â€ no nulls, no empty 
                     "recommendation": f"Buy at PKR {enriched.get('buy_price_pkr',0):,.0f}, sell at PKR {enriched.get('sell_price_pkr',0):,.0f} for {enriched.get('margin_percent',0):.1f}% margin",
                     "evidence": ["buy_price_pkr", "sell_price_pkr", "margin_percent"],
                 })
-        existing_ledger = strategy.get("evidence_ledger") or []
-        combined: List[Dict[str, Any]] = []
+        normalized_ledger = []
         seen = set()
-        for entry in built_ledger + list(existing_ledger):
+        for entry in built_ledger:
             normalized = _normalize_entry(entry)
             if not normalized:
                 continue
@@ -408,9 +424,9 @@ Required JSON structure (fill every field Ã¢â‚¬â€ no nulls, no empty 
             if key in seen:
                 continue
             seen.add(key)
-            combined.append(normalized)
+            normalized_ledger.append(normalized)
         strategy = dict(strategy)
-        strategy["evidence_ledger"] = combined
+        strategy["evidence_ledger"] = normalized_ledger
         return strategy
 
     def _ensure_kpis(
@@ -570,3 +586,4 @@ Required JSON structure (fill every field Ã¢â‚¬â€ no nulls, no empty 
                 product_name,
             )
         return {**stored, **strategy}
+

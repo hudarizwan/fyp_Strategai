@@ -499,6 +499,8 @@ def build_generation_input(
 
 def apply_strategy_consistency(strategy: Dict[str, Any], business_state: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(strategy)
+    if "marketing_decision_summary" in result:
+        return result
     market_state = business_state.get("market_state") or {}
     playbook = business_state.get("category_playbook") or {}
     pricing_strategy = str(market_state.get("pricing_strategy", "BALANCED")).upper()
@@ -681,3 +683,4 @@ def build_marketing_readiness_score(strategy: Dict[str, Any], business_state: Di
         readiness -= 5.0
 
     return int(max(0, min(100, round(readiness))))
+

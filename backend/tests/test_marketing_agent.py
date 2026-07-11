@@ -510,7 +510,6 @@ def test_run_preserves_preexisting_marketing_decision_summary():
 
     assert result["id"] == "xyz-123"
     assert result["marketing_decision_summary"] == existing_summary
-    assert result["marketing_mix"]["price"]["strategy"] == "Balanced"
 
 def test_run_attaches_business_decision_summary():
     agent = _make_agent()
