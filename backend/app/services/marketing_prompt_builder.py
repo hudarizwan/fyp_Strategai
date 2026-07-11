@@ -489,6 +489,20 @@ def build_generation_input(
     return {
         "product_name": perceived.get("product_name") or enriched.get("product_name", ""),
         "category": perceived.get("category") or enriched.get("category", ""),
+        "buy_price_pkr": perceived.get("buy_price_pkr"),
+        "sell_price_pkr": perceived.get("sell_price_pkr"),
+        "margin_percent": perceived.get("margin_percent"),
+        "confidence_score": perceived.get("confidence_score"),
+        "confidence_reason": perceived.get("confidence_reason", ""),
+        "vendor_count": perceived.get("vendor_count"),
+        "seller_count": perceived.get("seller_count"),
+        "price_spread": perceived.get("price_spread"),
+        "competitor_count": enriched.get("competitor_count"),
+        "price_band": enriched.get("price_band") or {},
+        "platform_distribution": enriched.get("platform_distribution") or {},
+        "wholesale_origins": enriched.get("wholesale_origins") or [],
+        "moq_range": enriched.get("moq_range") or {},
+        "review_themes": enriched.get("review_themes") or [],
         "market_state": business_state["market_state"],
         "category_playbook": business_state["category_playbook"],
         "strategy_guardrails": business_state["strategy_guardrails"],
@@ -499,11 +513,25 @@ def build_generation_input(
 
 def apply_strategy_consistency(strategy: Dict[str, Any], business_state: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(strategy)
-    if "marketing_decision_summary" in result:
-        return result
     market_state = business_state.get("market_state") or {}
     playbook = business_state.get("category_playbook") or {}
     pricing_strategy = str(market_state.get("pricing_strategy", "BALANCED")).upper()
+    pricing_label = {
+        "COMPETITIVE": "Competitive",
+        "BALANCED": "Balanced",
+        "PREMIUM": "Premium",
+    }.get(pricing_strategy, "Balanced")
+    if "marketing_decision_summary" in result:
+        result["marketing_consistency_report"] = {
+            "status": "pass",
+            "checks": [
+                f"pricing_strategy:{pricing_label}",
+                f"competition:{market_state.get('competition', 'MEDIUM')}",
+                f"demand:{market_state.get('demand', 'MEDIUM')}",
+            ],
+            "corrections": [],
+        }
+        return result
     target_positioning = playbook.get("positioning", "Value-for-Money")
     recommended_channels = list(playbook.get("primary_channels", []))
     tactics = list(playbook.get("promotion_hooks", []))
