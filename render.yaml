@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: strategai-backend
+    env: docker
+    rootDir: backend
+    dockerfilePath: Dockerfile
+    healthCheckPath: /readiness
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8001
+      - key: LOG_LEVEL
+        value: INFO
+      - key: MARKETING_REQUEST_TIMEOUT_SECONDS
+        value: 45
+      - key: MARKETING_INLINE_TIMEOUT_SECONDS
+        value: 20
+      - key: RUN_INLINE_MARKETING
+        value: false

@@ -5,6 +5,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.services.ecdb import ECDB
+from app.services.marketing_archetypes import route_strategy_archetype
+from app.services.marketing_profile import build_product_profile
+from app.services.marketing_prompt_builder import build_compact_analytics_summary, build_competitor_summary
+from app.services.marketing_similarity import compare_with_history
 
 
 def _make_ecdb_rest():
@@ -19,6 +23,8 @@ def _make_ecdb_rest():
         db.driver_name = "supabase_rest"
         db.rest_base_url = "http://fake.supabase"
         db.rest_headers = {"apikey": "fake-key", "Authorization": "Bearer fake-key"}
+        import requests
+        db.rest_session = requests.Session()
         return db
 
 
@@ -38,13 +44,15 @@ def test_insert_marketing_strategy_returns_row():
         "confidence_score": 0.8,
         "created_at": "2026-04-12T00:00:00Z",
     }
-    with patch.object(db, "_rest_post", return_value=[fake_row]) as mock_post:
+    with patch.object(db, "get_latest_marketing_strategy_by_analytics", return_value=None), \
+         patch.object(db, "_rest_post", return_value=[fake_row]) as mock_post:
         result = db.insert_marketing_strategy({
             "product_name": "Headphones",
             "category": "headsets",
             "strategy": {"stp": {}},
             "analysis_status": "ok",
             "confidence_score": 0.8,
+            "analytics_result_id": "analytics-1",
         })
     assert result["id"] == "aaaa-1111"
     mock_post.assert_called_once_with("marketing_strategies", {
@@ -52,8 +60,39 @@ def test_insert_marketing_strategy_returns_row():
         "category": "headsets",
         "strategy": {"stp": {}},
         "analysis_status": "ok",
+        "strategy_status": "generated",
         "confidence_score": 0.8,
+        "analytics_result_id": "analytics-1",
+        "version_number": 1,
+        "generation_type": "initial",
+        "is_latest": True,
     })
+
+
+def test_insert_marketing_strategy_marks_previous_latest_false():
+    db = _make_ecdb_rest()
+    previous = {"id": "prev-1", "version_number": 2}
+    fake_row = {"id": "new-1", "version_number": 3}
+    with patch.object(db, "get_latest_marketing_strategy_by_analytics", return_value=previous), \
+         patch.object(db, "_rest_patch", return_value=[] ) as mock_patch, \
+         patch.object(db, "_rest_post", return_value=[fake_row]) as mock_post:
+        db.insert_marketing_strategy({
+            "product_name": "Headphones",
+            "category": "headsets",
+            "strategy": {"stp": {}},
+            "analysis_status": "ok",
+            "confidence_score": 0.8,
+            "analytics_result_id": "analytics-1",
+        })
+    mock_patch.assert_called_once_with(
+        "marketing_strategies",
+        {"is_latest": False},
+        {"id": "eq.prev-1"},
+    )
+    posted = mock_post.call_args.args[1]
+    assert posted["version_number"] == 3
+    assert posted["generation_type"] == "regenerate"
+    assert posted["parent_strategy_id"] == "prev-1"
 
 
 def test_get_marketing_history_returns_list():
@@ -81,6 +120,17 @@ def test_get_marketing_strategy_by_id_not_found():
     with patch.object(db, "_rest_get", return_value=[]):
         result = db.get_marketing_strategy_by_id("missing-id")
     assert result is None
+
+
+def test_get_latest_marketing_strategy_by_analytics_returns_latest():
+    db = _make_ecdb_rest()
+    fake_row = {"id": "bbb", "analytics_result_id": "analytics-1", "is_latest": True}
+    with patch.object(db, "_rest_get", return_value=[fake_row]) as mock_get:
+        result = db.get_latest_marketing_strategy_by_analytics("analytics-1")
+    assert result["id"] == "bbb"
+    params = mock_get.call_args.args[1]
+    assert params["analytics_result_id"] == "eq.analytics-1"
+    assert params["is_latest"] == "eq.true"
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +167,7 @@ VALID_SCRAPER = {
 
 
 def _make_agent():
-    with _patch("app.services.marketing_agent.ECDB"):
+    with _patch("app.services.marketing_agent.ECDB", create=True):
         from app.services.marketing_agent import MarketingAgent
         agent = MarketingAgent(ollama_base_url="http://localhost:11434", model="llama3.1:8b")
     return agent
@@ -154,6 +204,15 @@ def test_perceive_confidence_out_of_range_raises():
     bad = {**VALID_ANALYTICS, "confidence_score": 1.5}
     with pytest.raises(ValueError, match="confidence_score"):
         agent._perceive("Product", "category", bad)
+
+
+def test_perceive_accepts_negative_margin_for_evidence_only_pricing():
+    agent = _make_agent()
+    bad = {**VALID_ANALYTICS, "expected_profit_margin": -24.3}
+    perceived = agent._perceive("Product", "category", bad)
+
+    assert perceived["margin_percent"] == -24.3
+    assert perceived["gross_margin_percent"] == -24.3
 
 
 def test_enrich_extracts_competitors():
@@ -361,7 +420,8 @@ def test_critic_returns_improved_strategy():
         "channels": [],
     }
     improved = {**MINIMAL_VALID_STRATEGY, "channels": [{"name": "Daraz", "priority": 1, "rationale": "fixed"}]}
-    with _patch("app.services.marketing_agent.ollama") as mock_ollama:
+    with _patch("app.services.marketing_agent.ENABLE_MARKETING_CRITIC", True), \
+         _patch("app.services.marketing_agent.ollama") as mock_ollama:
         mock_ollama.Client.return_value.chat.return_value = _make_chat_response(
             _json.dumps(improved)
         )
@@ -383,7 +443,8 @@ def test_critic_skips_for_soft_flags_only():
         },
         "evidence_ledger": [],
     }
-    with _patch("app.services.marketing_agent.ollama") as mock_ollama:
+    with _patch("app.services.marketing_agent.ENABLE_MARKETING_CRITIC", True), \
+         _patch("app.services.marketing_agent.ollama") as mock_ollama:
         result = agent._critic(strategy_soft_flags, enriched)
         # Ollama should NOT be called for soft-only flags
         mock_ollama.Client.assert_not_called()
@@ -399,7 +460,8 @@ def test_critic_keeps_original_if_parse_fails():
         **MINIMAL_VALID_STRATEGY,
         "validation_report": {"status": "needs_review", "checks": [], "flags": ["some_flag"]},
     }
-    with _patch("app.services.marketing_agent.ollama") as mock_ollama:
+    with _patch("app.services.marketing_agent.ENABLE_MARKETING_CRITIC", True), \
+         _patch("app.services.marketing_agent.ollama") as mock_ollama:
         mock_ollama.Client.return_value.chat.return_value = _make_chat_response("not json")
         result = agent._critic(strategy_with_flags, enriched)
     assert result["analysis_status"] == "ok"
@@ -411,8 +473,10 @@ def test_run_returns_strategy_with_id():
                   "product_name": "Sony WH-1000XM5", "category": "headsets",
                   "created_at": "2026-04-12T00:00:00Z"}
 
+    fake_db = MagicMock()
+    fake_db.insert_marketing_strategy.return_value = stored_row
     with _patch("app.services.marketing_agent.ollama") as mock_ollama, \
-         _patch.object(agent.db, "insert_marketing_strategy", return_value=stored_row):
+         _patch("app.services.ecdb.ECDB", return_value=fake_db):
         mock_ollama.Client.return_value.chat.return_value = _make_chat_response(
             _json.dumps(MINIMAL_VALID_STRATEGY)
         )
@@ -421,3 +485,238 @@ def test_run_returns_strategy_with_id():
             VALID_ANALYTICS, VALID_SCRAPER,
         )
     assert result["id"] == "xyz-123"
+    assert result["storage_status"] == "stored"
+
+
+def test_run_returns_strategy_even_if_storage_fails():
+    agent = _make_agent()
+    failing_db = MagicMock()
+    failing_db.insert_marketing_strategy.side_effect = RuntimeError("db unavailable")
+
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama, \
+         _patch("app.services.ecdb.ECDB", return_value=failing_db):
+        mock_ollama.Client.return_value.chat.return_value = _make_chat_response(
+            _json.dumps(MINIMAL_VALID_STRATEGY)
+        )
+        result = agent.run(
+            "Sony WH-1000XM5", "headsets",
+            VALID_ANALYTICS, VALID_SCRAPER,
+        )
+
+    assert result["analysis_status"] == "ok"
+    assert result["storage_status"] == "failed"
+    assert "db unavailable" in result["storage_error"]
+
+
+def test_run_uses_fast_path_for_low_confidence_input():
+    agent = _make_agent()
+    low_confidence = {
+        **VALID_ANALYTICS,
+        "confidence_score": 0.2,
+        "retail_sellers_count": 0,
+    }
+    fake_db = MagicMock()
+    fake_db.insert_marketing_strategy.return_value = {"id": "fast-1"}
+
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama, \
+         _patch("app.services.ecdb.ECDB", return_value=fake_db):
+        result = agent.run(
+            "Sony WH-1000XM5", "headsets",
+            low_confidence, VALID_SCRAPER,
+        )
+
+    mock_ollama.Client.assert_not_called()
+    assert result["id"] == "fast-1"
+    assert result["analysis_status"] == "ok"
+    assert result["validation_report"]["status"] == "ok"
+
+
+def test_fast_path_differs_for_different_products():
+    agent = _make_agent()
+    low_confidence = {
+        **VALID_ANALYTICS,
+        "confidence_score": 0.2,
+        "retail_sellers_count": 0,
+    }
+    audio_perceived = agent._perceive("HyperX Cloud III", "headset", low_confidence)
+    audio_enriched = agent._enrich(audio_perceived, VALID_SCRAPER)
+    audio_context = agent._build_strategy_context(audio_perceived, audio_enriched, "initial", None)
+    audio_strategy = agent._build_fast_path_strategy(audio_enriched, audio_context)
+
+    camera_perceived = agent._perceive("A9 Mini Camera", "camera", low_confidence)
+    camera_enriched = agent._enrich(
+        camera_perceived,
+        {
+            "wholesale": {"made_in_china": [{"origin": "China", "moq": 20}]},
+            "retail": [{"seller": "SecureCam", "platform": "daraz", "list_price": 2200.0, "detail": {"highlights": "Easy setup camera"}}],
+        },
+    )
+    camera_context = agent._build_strategy_context(camera_perceived, camera_enriched, "initial", None)
+    camera_strategy = agent._build_fast_path_strategy(camera_enriched, camera_context)
+
+    assert audio_strategy["pestel"]["social"] != camera_strategy["pestel"]["social"]
+    assert audio_strategy["branding"]["tagline"] != camera_strategy["branding"]["tagline"]
+    assert audio_strategy["launch_plan"]["phases"][0]["actions"] != camera_strategy["launch_plan"]["phases"][0]["actions"]
+
+
+def test_regenerate_rotates_strategy_angle():
+    agent = _make_agent()
+    perceived = agent._perceive("HyperX Cloud III", "headset", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    previous_record = {"strategy": {"strategy_meta": {"strategy_angle": "value_focus"}}}
+
+    fake_db = MagicMock()
+    fake_db.get_marketing_strategy_by_id.return_value = previous_record
+    agent.db = fake_db
+
+    regenerate_context = agent._build_strategy_context(
+        perceived,
+        enriched,
+        generation_type="regenerate",
+        parent_strategy_id="prev-strategy",
+    )
+    assert regenerate_context["strategy_angle"] != "value_focus"
+    assert regenerate_context["variation_type"] == "angle_rotation"
+
+
+def test_angle_overrides_do_not_clobber_llm_sections():
+    agent = _make_agent()
+    perceived = agent._perceive("HyperX Cloud III", "headset", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    context = agent._build_strategy_context(perceived, enriched, "regenerate", None)
+    strategy = {
+        **MINIMAL_VALID_STRATEGY,
+        "stp": {
+            "segmentation": {"demographics": "Custom demographic", "psychographics": "Custom psychographic"},
+            "targeting": {"primary_segment": "Custom segment"},
+            "positioning": {"statement": "LLM positioning"},
+        },
+        "branding": {
+            "value_proposition": "Custom value proposition",
+            "tone": "bespoke tone",
+            "tagline": "LLM tagline",
+        },
+        "channels": [{"name": "custom_channel", "priority": 1, "rationale": "LLM preferred this route"}],
+        "marketing_mix": {
+            "product": {"description": "LLM description", "usp": "LLM usp"},
+            "price": {"strategy": "LLM price strategy", "recommended_sell_pkr": 38000},
+            "place": {"channels": ["custom_channel"]},
+            "promotion": {"tactics": ["LLM promotion"]},
+        },
+    }
+
+    result = agent._apply_strategy_angle_overrides(strategy, enriched, context)
+
+    assert result["stp"]["positioning"]["statement"] == "LLM positioning"
+    assert result["branding"]["tagline"] == "LLM tagline"
+    assert result["channels"][0]["name"] == "custom_channel"
+    assert result["marketing_mix"]["price"]["strategy"] == "LLM price strategy"
+
+
+def test_product_profile_and_archetype_are_product_specific():
+    agent = _make_agent()
+    perceived = agent._perceive("HyperX Cloud III", "headset", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    category_profile = agent._infer_category_profile(enriched)
+    product_profile = build_product_profile(enriched, category_profile)
+    archetype = route_strategy_archetype(product_profile, enriched)
+
+    assert product_profile["product_family"] == "audio"
+    assert product_profile["buyer_motivation"] == "performance_and_trust"
+    assert archetype["primary"] in {"technical_comparison", "premium_brand"}
+
+
+def test_compact_summaries_are_small_and_structured():
+    agent = _make_agent()
+    perceived = agent._perceive("Sony WH-1000XM5", "headsets", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+
+    analytics_summary = build_compact_analytics_summary(enriched)
+    competitor_summary = build_competitor_summary(enriched)
+
+    assert set(analytics_summary) >= {"buy_price_pkr", "sell_price_pkr", "margin_percent", "platform_count"}
+    assert competitor_summary["competitor_names"][0] == "TechStore"
+    assert len(competitor_summary["review_themes"]) <= 3
+
+
+def test_similarity_check_flags_near_duplicate_strategy():
+    current = {
+        "stp": {"positioning": {"statement": "Clear trust-led headset positioning"}},
+        "branding": {"tagline": "Trust-led sound"},
+        "channels": [{"name": "daraz", "priority": 1, "rationale": "marketplace first"}],
+        "content_strategy": {"formats": ["comparison reels"], "frequency": "3 posts weekly"},
+        "launch_plan": {"phases": [{"name": "Launch", "actions": ["run comparison creatives"]}]},
+    }
+    previous = {
+        "id": "prev-1",
+        "strategy": {
+            "stp": {"positioning": {"statement": "Clear trust-led headset positioning"}},
+            "branding": {"tagline": "Trust-led sound"},
+            "channels": [{"name": "daraz", "priority": 1, "rationale": "marketplace first"}],
+            "content_strategy": {"formats": ["comparison reels"], "frequency": "3 posts weekly"},
+            "launch_plan": {"phases": [{"name": "Launch", "actions": ["run comparison creatives"]}]},
+        },
+    }
+
+    similarity = compare_with_history(current, [previous], threshold=0.5)
+
+    assert similarity["too_similar"] is True
+    assert similarity["matched_strategy_id"] == "prev-1"
+
+
+def test_similarity_guard_regenerates_selected_sections():
+    agent = _make_agent()
+    perceived = agent._perceive("HyperX Cloud III", "headset", VALID_ANALYTICS)
+    enriched = agent._enrich(perceived, VALID_SCRAPER)
+    context = agent._build_strategy_context(perceived, enriched, "regenerate", None)
+    strategy = {
+        **MINIMAL_VALID_STRATEGY,
+        "strategy_meta": {},
+    }
+
+    previous = {"id": "prev-1", "strategy": strategy}
+    patch_strategy = {
+        "stp": {"positioning": {"statement": "Different angle positioning"}},
+        "branding": {"tagline": "Fresh headline", "tone": "bold"},
+        "channels": [{"name": "instagram", "priority": 1, "rationale": "creator-led discovery"}],
+        "content_strategy": {"formats": ["creator reels"], "frequency": "daily"},
+        "marketing_mix": {"promotion": {"tactics": ["creator seeding"]}},
+        "analysis_status": "ok",
+    }
+
+    agent._load_previous_strategies = MagicMock(return_value=[previous])
+    agent._regenerate_sections = MagicMock(return_value={**strategy, **patch_strategy})
+
+    with _patch("app.services.marketing_agent.ENABLE_SIMILARITY_REGEN", True):
+        result = agent._apply_similarity_guard(
+            strategy,
+            enriched,
+            context,
+            "HyperX Cloud III",
+            "headset",
+            "analytics-1",
+            None,
+        )
+
+    assert result["branding"]["tagline"] == "Fresh headline"
+    assert result["strategy_meta"]["similarity_check"]["regenerated_due_to_similarity"] is True
+
+
+def test_run_falls_back_to_fast_path_when_llm_output_is_invalid():
+    agent = _make_agent()
+    fake_db = MagicMock()
+    fake_db.insert_marketing_strategy.return_value = {"id": "fallback-1"}
+
+    with _patch("app.services.marketing_agent.ollama") as mock_ollama, \
+         _patch("app.services.ecdb.ECDB", return_value=fake_db):
+        mock_ollama.Client.return_value.chat.return_value = _make_chat_response("not json")
+        result = agent.run(
+            "Sony WH-1000XM5",
+            "headsets",
+            VALID_ANALYTICS,
+            VALID_SCRAPER,
+        )
+
+    assert result["id"] == "fallback-1"
+    assert result["analysis_status"] == "ok"
+    assert result["validation_report"]["status"] == "ok"

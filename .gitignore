@@ -1,12 +1,48 @@
-# Backend
-venv/
-__pycache__/
+# Environment
 .env
+.env.*
+!.env.example
+!backend/.env.example
+!frontend/salik-frontend/.env.example
 
-# Frontend
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+backend/venv/
+
+# Node / frontend
 node_modules/
-.next/
-.env.local
+dist/
+build/
+frontend/salik-frontend/dist/
+frontend/salik-frontend/node_modules/
 
-# Local worktrees
+# Logs / caches
+*.log
+*.sqlite3
+*.db
+*.joblib
+*.pkl
+*.onnx
+.cache/
+.tmp-tests/
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Vite generated artifacts
+frontend/salik-frontend/vite.config.js
+frontend/salik-frontend/vite.config.d.ts
+frontend/salik-frontend/*.tsbuildinfo
 .worktrees/

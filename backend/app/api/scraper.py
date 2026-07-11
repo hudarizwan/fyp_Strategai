@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
@@ -12,23 +13,23 @@ router = APIRouter()
 # --------------------------
 class ScrapeRequest(BaseModel):
     product_name: str
-    category: str             
+    category: str
+    normalize: bool = False
+    persist: bool = False
+    use_parallel: bool = True
     
 
 # --------------------------
 #   Wholesale Item
 # --------------------------
 class WholesaleItem(BaseModel):
-    platform: str                # made-in-china
-
+    platform: str
     supplier: str
     moq: int
-    unit_price: float            # USD
+    unit_price: float
     unit_price_pkr: float | None = None
     currency: str | None = None
-
     origin: str
-
     moq_listing: int | None = None
     attributes_listing: Dict[str, str] = {}
 
@@ -38,12 +39,12 @@ class WholesaleItem(BaseModel):
 # --------------------------
 class RetailItem(BaseModel):
     seller: str
-    platform: str               # "mega.pk" / "homeshopping" / "telemart" / "daraz"
+    platform: str
     list_price: float
     promo: str
     url: str | None = None
     title: str | None = None
-    detail: Dict[str, Any] | None = None  # daraz/homeshopping/mega detail etc.
+    detail: Dict[str, Any] | None = None
 
 
 # --------------------------
@@ -59,17 +60,19 @@ class ScrapeResponse(BaseModel):
 
 
 # --------------------------
-#   Endpoint
+#   Main Endpoint (Fast)
 # --------------------------
-@router.post("/start", response_model=ScrapeResponse)
+@router.post("/start")
 def start_scrape(req: ScrapeRequest):
     """
-    Module 1: Scraper Agent
-    Made-in-China wholesale + PK Retail (Mega, Homeshopping, Telemart, Daraz)
+    Verified scraper endpoint.
+    Returns the current wholesale + retail scrape payload used by the frontend.
     """
     result = scrape_product_platforms(
         product_name=req.product_name,
-        category=req.category
-        
+        category=req.category,
+        normalize=req.normalize,
+        persist=req.persist,
+        use_parallel=req.use_parallel,
     )
-    return result
+    return jsonable_encoder(result)
