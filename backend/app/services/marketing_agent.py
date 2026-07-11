@@ -229,6 +229,8 @@ class MarketingAgent:
         strategy: Dict[str, Any],
         business_state: Dict[str, Any],
     ) -> Dict[str, Any]:
+        if "marketing_decision_summary" in strategy:
+            return strategy
         strategy = dict(strategy)
         strategy["marketing_decision_summary"] = marketing_prompt_builder.build_marketing_decision_summary(
             strategy,

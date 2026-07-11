@@ -420,6 +420,30 @@ def test_strategy_consistency_auto_corrects_contradictory_positioning():
     assert corrected["marketing_decision_summary"]["confidence"] == "High"
 
 
+def test_ensure_marketing_decision_summary_preserves_existing_summary():
+    agent = _make_agent()
+    existing_summary = {
+        "selected_positioning": "Mid-range Premium",
+        "selection_reason": ["keep this summary"],
+        "recommended_channels": ["Daraz"],
+        "confidence": "High",
+    }
+    strategy = {
+        **MINIMAL_VALID_STRATEGY,
+        "marketing_decision_summary": existing_summary,
+    }
+    business_state = {"market_state": {"pricing_strategy": "BALANCED"}}
+
+    with _patch(
+        "app.services.marketing_agent.marketing_prompt_builder.build_marketing_decision_summary"
+    ) as mock_build:
+        result = agent._ensure_marketing_decision_summary(strategy, business_state)
+
+    assert result is strategy
+    assert result["marketing_decision_summary"] is existing_summary
+    mock_build.assert_not_called()
+
+
 def test_run_includes_marketing_decision_summary():
     agent = _make_agent()
     stored_row = {
