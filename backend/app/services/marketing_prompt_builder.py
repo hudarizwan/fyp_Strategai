@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from typing import Any, Dict, List, Optional
@@ -19,6 +19,9 @@ RESPONSE_SCHEMA = {
     "validation_report": {"status": "ok", "checks": [], "flags": []},
     "confidence_score": 0.75,
     "analysis_status": "ok",
+    "marketing_intelligence": {},
+    "marketing_decision_summary": {},
+    "framework_outputs": {},
 }
 
 
@@ -83,9 +86,10 @@ def build_marketing_system_prompt(strategy_context: Dict[str, Any], pakistan_con
 {pakistan_context}
 
 Working mode:
+- Use the deterministic marketing intelligence bundle as the source of truth and synthesize the final narrative from it.
 - Write a full, rich, LLM-generated go-to-market strategy in the original StrategAI style.
-- Use the product profile, gross-profit snapshot, and strategy archetype to make the strategy specific.
-- Keep the strategy grounded in the supplied analytics, observed market spread, and competitor signals.
+- Use the product profile, gross-profit snapshot, strategy archetype, category playbook, and marketing intelligence bundle to make the strategy specific.
+- Keep the strategy grounded in the supplied analytics, observed market spread, competitor signals, and evidence-led marketing intelligence.
 - Use the evidence to justify the strategy, but do not flatten the narrative into a terse summary.
 - Do not assume platform commissions, shipping, taxes, or other operating costs.
 - Prefer detailed, product-specific prose in SWOT, PESTEL, launch plan, KPI plan, and growth funnel sections.
@@ -119,14 +123,20 @@ def build_marketing_user_prompt(
         "strategy_archetype": strategy_context["strategy_archetype"],
         "competitor_summary": strategy_context["competitor_summary"],
         "commercial_intelligence": strategy_context.get("commercial_intelligence", {}),
+        "marketing_intelligence": strategy_context.get("marketing_intelligence", {}),
+        "category_playbook": strategy_context.get("category_playbook", {}),
+        "marketing_decision_summary": strategy_context.get("marketing_decision_summary", {}),
+        "framework_outputs": strategy_context.get("framework_outputs", {}),
         "evidence_ledger": strategy_context.get("evidence_ledger", []),
         "strategy_angle": strategy_context["strategy_angle"],
     }
     instructions = [
-        "Generate a product-specific marketing strategy.",
-        "Use the supplied profile and archetype before generic category assumptions.",
-        "Keep channel choices and messaging consistent with the buyer trigger and content style needed.",
+        "Generate a product-specific marketing strategy that follows the structured intelligence bundle.",
+        "Use the supplied profile, category playbook, and intelligence bundle before generic category assumptions.",
+        "Keep channel choices and messaging consistent with the buyer trigger, content style, and validation checks provided.",
         "Write in a richer, more detailed style rather than a short executive summary.",
+        "Use evidence references for every major recommendation.",
+        "Do not contradict the deterministic marketing decision summary or quality band.",
         "Return JSON only.",
     ]
     if sections:
@@ -146,3 +156,7 @@ def build_marketing_user_prompt(
         + "\n\nSCHEMA:\n"
         + json.dumps(RESPONSE_SCHEMA if not sections else {key: RESPONSE_SCHEMA[key] for key in sections}, ensure_ascii=True)
     )
+
+
+
+

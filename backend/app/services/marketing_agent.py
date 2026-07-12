@@ -1,4 +1,4 @@
-"""
+﻿"""
 Marketing Agent for StrategAI.
 
 Lifecycle: Perceive -> Enrich -> Generate -> Validate -> Critic -> Store
@@ -25,6 +25,7 @@ from app.services.marketing_prompt_builder import (
     build_marketing_system_prompt,
     build_marketing_user_prompt,
 )
+from app.services.marketing_intelligence import build_marketing_intelligence_bundle
 from app.services.marketing_similarity import compare_with_history
 
 logger = logging.getLogger(__name__)
@@ -281,6 +282,21 @@ class MarketingAgent:
             "launch_scope": self._quality_band_limits(quality_band)["launch_scope"],
             "evidence_ledger": perceived.get("evidence_ledger") or [],
             "previous_strategy_angle": previous_angle,
+        }
+        marketing_intelligence = build_marketing_intelligence_bundle(enriched, context)
+        context = {
+            **context,
+            "marketing_intelligence": marketing_intelligence,
+            "marketing_decision_summary": marketing_intelligence["marketing_decision_summary"],
+            "marketing_validation": marketing_intelligence["marketing_validation"],
+            "category_playbook": marketing_intelligence["category_playbook"],
+            "channel_recommendation": marketing_intelligence["channel_recommendation"],
+            "budget_recommendation": marketing_intelligence["budget_recommendation"],
+            "pricing_communication": marketing_intelligence["pricing_communication"],
+            "risk_assessment": marketing_intelligence["risk_assessment"],
+            "content_planning": marketing_intelligence["content_planning"],
+            "kpi_recommendation": marketing_intelligence["kpi_recommendation"],
+            "framework_outputs": marketing_intelligence["framework_outputs"],
         }
         self._context_cache[cache_key] = context
         return context
@@ -1093,6 +1109,22 @@ class MarketingAgent:
             "compact_analytics": compact_analytics,
             "commercial_intelligence": strategy_context.get("commercial_intelligence") or {},
         }
+        marketing_intelligence = strategy_context.get("marketing_intelligence") or {}
+        strategy["marketing_intelligence"] = marketing_intelligence
+        strategy["marketing_decision_summary"] = strategy_context.get("marketing_decision_summary") or marketing_intelligence.get("marketing_decision_summary") or {}
+        strategy["marketing_validation"] = strategy_context.get("marketing_validation") or marketing_intelligence.get("marketing_validation") or {}
+        strategy["category_playbook"] = strategy_context.get("category_playbook") or marketing_intelligence.get("category_playbook") or {}
+        strategy["customer_intelligence"] = marketing_intelligence.get("customer_intelligence") or {}
+        strategy["market_intelligence"] = marketing_intelligence.get("market_intelligence") or {}
+        strategy["competitor_intelligence"] = marketing_intelligence.get("competitor_intelligence") or {}
+        strategy["brand_positioning"] = marketing_intelligence.get("brand_positioning") or {}
+        strategy["channel_recommendation"] = strategy_context.get("channel_recommendation") or marketing_intelligence.get("channel_recommendation") or {}
+        strategy["budget_recommendation"] = strategy_context.get("budget_recommendation") or marketing_intelligence.get("budget_recommendation") or {}
+        strategy["pricing_communication"] = strategy_context.get("pricing_communication") or marketing_intelligence.get("pricing_communication") or {}
+        strategy["risk_assessment"] = strategy_context.get("risk_assessment") or marketing_intelligence.get("risk_assessment") or {}
+        strategy["content_planning"] = strategy_context.get("content_planning") or marketing_intelligence.get("content_planning") or {}
+        strategy["kpi_recommendation"] = strategy_context.get("kpi_recommendation") or marketing_intelligence.get("kpi_recommendation") or {}
+        strategy["framework_outputs"] = strategy_context.get("framework_outputs") or marketing_intelligence.get("framework_outputs") or {}
         return strategy
 
     def _load_previous_strategies(
@@ -1602,3 +1634,8 @@ class MarketingAgent:
             strategy["storage_status"] = "failed"
             strategy["storage_error"] = str(exc)
             return strategy
+
+
+
+
+
