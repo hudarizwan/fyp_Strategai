@@ -1,16 +1,10 @@
-export default function Footer() {
+﻿export default function Footer() {
   return (
-    <footer className="border-t border-white/10 bg-slate-950/90 backdrop-blur-xl">
+    <footer className="border-t border-white/10 bg-slate-950/80 backdrop-blur-2xl">
       <div className="container mx-auto px-4 py-6">
-        <div className="flex flex-col items-center justify-between md:flex-row">
-          <div className="mb-4 flex items-center space-x-2 md:mb-0">
-            <span className="text-sm text-gray-400">
-              © 2024 StrategAI. All rights reserved.
-            </span>
-          </div>
-          <div className="text-sm text-gray-400">
-            E-commerce Profit Optimization Platform
-          </div>
+        <div className="flex flex-col items-center justify-between gap-3 md:flex-row">
+          <span className="text-sm text-slate-400">© 2026 StrategAI. All rights reserved.</span>
+          <div className="text-sm text-slate-500">E-commerce decision intelligence platform</div>
         </div>
       </div>
     </footer>

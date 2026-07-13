@@ -12,7 +12,6 @@ interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<SignInResult>;
   signUpWithEmail: (fullName: string, email: string, password: string) => Promise<SignInResult>;
   sendPasswordResetEmail: (email: string) => Promise<SignInResult>;
@@ -69,19 +68,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       profile,
       loading,
-      signInWithGoogle: async () => {
-        const redirectTo = `${window.location.origin}/auth/callback`;
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo,
-          },
-        });
-
-        if (error) {
-          throw error;
-        }
-      },
       signInWithEmail: async (email, password) => {
         const { error } = await supabase.auth.signInWithPassword({
           email,
@@ -99,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email,
           password,
           options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
             data: {
               full_name: fullName.trim(),
               name: fullName.trim(),
@@ -147,6 +134,7 @@ export function useAuth() {
 
   return context;
 }
+
 
 
 
