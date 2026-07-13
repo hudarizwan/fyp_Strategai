@@ -126,28 +126,13 @@ export default function Analytics() {
     void lookup();
   }, [analyticsRecommendation]);
 
-  if (!data) {
-    return (
-      <div className="container mx-auto min-h-[calc(100vh-8rem)] px-4 py-8">
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-gray-400">No analytics data available. Please search for a product first.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  const dashboard = buildAnalyticsDashboardModel(data, analyticsRecommendation, latestStrategy);
-  const hasMarketing = Boolean(latestStrategy);
-  const leaderBars = dashboard.supplierIntelligence.leaders.slice(0, 8).map((item) => ({ name: item.name, price: item.averagePrice, count: item.count }));
-  const sellerBars = dashboard.retailMarket.leaders.slice(0, 8).map((item) => ({ name: item.name, price: item.averagePrice, count: item.count }));
-  const marketRadar = dashboard.marketOpportunity.radar;
-  const axisTick = { fill: '#94a3b8', fontSize: 12 };
-  const gridStroke = 'rgba(148, 163, 184, 0.14)';
+  const dashboard = useMemo(() => {
+    if (!data) return null;
+    return buildAnalyticsDashboardModel(data, analyticsRecommendation, latestStrategy);
+  }, [analyticsRecommendation, data, latestStrategy]);
 
   const reportPayload = useMemo<ReportPayload | null>(() => {
-    if (!data) return null;
+    if (!data || !dashboard) return null;
     const wholesaleItems = data.wholesale.made_in_china || [];
     const retailItems = data.retail || [];
     return {
@@ -191,7 +176,24 @@ export default function Analytics() {
     };
   }, [analyticsRecommendation, dashboard, data]);
 
-  const handleDownloadReport = async () => {
+  if (!data || !dashboard) {
+    return (
+      <div className="container mx-auto min-h-[calc(100vh-8rem)] px-4 py-8">
+        <Card>
+          <CardContent className="py-12 text-center">
+            <p className="text-gray-400">No analytics data available. Please search for a product first.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const hasMarketing = Boolean(latestStrategy);
+  const leaderBars = dashboard.supplierIntelligence.leaders.slice(0, 8).map((item) => ({ name: item.name, price: item.averagePrice, count: item.count }));
+  const sellerBars = dashboard.retailMarket.leaders.slice(0, 8).map((item) => ({ name: item.name, price: item.averagePrice, count: item.count }));
+  const marketRadar = dashboard.marketOpportunity.radar;
+  const axisTick = { fill: '#94a3b8', fontSize: 12 };
+  const gridStroke = 'rgba(148, 163, 184, 0.14)';  const handleDownloadReport = async () => {
     if (!reportPayload) return;
     setDownloadLoading(true);
     setDownloadError(null);
@@ -276,6 +278,9 @@ export default function Analytics() {
     </motion.div>
   );
 }
+
+
+
 
 
 
