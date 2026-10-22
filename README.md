@@ -1,51 +1,105 @@
 # StrategAI
 
-StrategAI is an AI-powered e-commerce profit optimization platform built to help businesses evaluate products, compare suppliers, analyze market pricing, and choose better sourcing and selling strategies. The system brings together a FastAPI backend, a React + Vite frontend, Supabase/PostgreSQL storage, and Ollama-powered AI services to deliver product intelligence and decision support.
+<div align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python" alt="Python" />
+  <img src="https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react" alt="React" />
+  <img src="https://img.shields.io/badge/FastAPI-Latest-009688?style=for-the-badge&logo=fastapi" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase" alt="Supabase" />
+  <img src="https://img.shields.io/badge/Ollama-AI-8B5CF6?style=for-the-badge&logo=ollama" alt="Ollama" />
+</div>
 
-It is designed for users who want to:
-- analyze product opportunities
-- compare wholesale and retail data
-- understand supplier quality and pricing
-- estimate profitability and market viability
-- generate strategic recommendations using AI
-- track marketing and reporting insights in one dashboard
+<p align="center">
+  <strong>AI-powered e-commerce profit optimization platform</strong>
+</p>
 
----
+StrategAI is a full-stack intelligent product analytics system built to help users research products, evaluate suppliers, compare market prices, and make more profitable sourcing and selling decisions through AI-guided analysis.
 
-## What this project does
-
-StrategAI processes a product query and turns it into actionable business intelligence. The workflow typically includes:
-
-1. User enters a product or keyword in the frontend.
-2. The backend triggers scraping and data collection services.
-3. Product, supplier, and market data are cleaned and normalized.
-4. Analytics and AI agents evaluate pricing, competition, and profit potential.
-5. Recommendations are surfaced through the dashboard and reports.
-6. Users can review strategy and marketing insights for better decision-making.
-
-In short, the project helps answer questions such as:
-- Is this product worth sourcing?
-- Who are the best suppliers?
-- What is the market price range?
-- What margin can I expect?
-- Which strategy is likely to be most profitable?
+This project combines web scraping, backend intelligence, analytics pipelines, and a modern dashboard to transform raw e-commerce data into practical business recommendations.
 
 ---
 
-## Key features
+## Why this project matters
 
-- Product search and product intelligence
-- Wholesale supplier analysis
-- Retail competitor benchmarking
-- Profit and margin estimation
-- AI-powered strategic recommendations
-- Marketing intelligence support
-- Report generation for business insights
-- Dashboard analytics with charts and summaries
-- Authentication and protected user sessions
-- Supabase-based persistence and data access
-- Dockerized local deployment for fast setup
-- Cloud deployment support for production environments
+Modern e-commerce decisions often depend on fragmented information from multiple sources: supplier listings, competitive pricing, product quality, and profit margins. StrategAI brings that information into one workflow so users can evaluate product opportunities faster and make clearer commercial decisions.
+
+The system helps answer questions like:
+- Is a product worth sourcing?
+- Which supplier offers the best value?
+- How competitive is the current market?
+- What margin and pricing strategy will work best?
+- Which marketing direction is more promising?
+
+---
+
+## Project highlights
+
+- AI-assisted product intelligence
+- Supplier and wholesale comparison
+- Retail market analysis
+- Profitability and margin estimation
+- Strategic recommendation engine
+- Marketing insight generation
+- Report-ready business summaries
+- Authenticated dashboard experience
+- Supabase-backed persistence
+- Dockerized local development workflow
+
+---
+
+## Architecture overview
+
+```text
+┌──────────────────────────────┐
+│       User Interaction       │
+│   React + Vite Dashboard     │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│       FastAPI Backend        │
+│  API routes + services       │
+│  analytics + AI workflows    │
+└───────┬──────────────┬───────┘
+        │              │
+        ▼              ▼
+┌──────────────┐  ┌──────────────────────┐
+│ Scraper Layer │  │ Supabase/PostgreSQL │
+│ product data  │  │ structured storage   │
+└──────┬───────┘  └──────────┬───────────┘
+       │                     │
+       └──────────────┬──────┘
+                      ▼
+             ┌────────────────────┐
+             │ AI + Analytics     │
+             │ recommendation     │
+             │ & report logic    │
+             └─────────┬──────────┘
+                       ▼
+             ┌────────────────────┐
+             │ Dashboard Insights │
+             │ Reports & Strategy  │
+             └────────────────────┘
+```
+
+---
+
+## System flow
+
+```mermaid
+flowchart TD
+    A[User enters a product query] --> B[Frontend dashboard]
+    B --> C[FastAPI backend]
+    C --> D[Scraper and data collection services]
+    D --> E[Data cleaning and normalization]
+    E --> F[Supabase/PostgreSQL storage]
+    E --> G[AI-powered analytics agents]
+    G --> H[Profit optimization logic]
+    G --> I[Marketing intelligence]
+    H --> J[Dashboard insights]
+    I --> J
+    J --> K[Reports and recommendations]
+    K --> L[User decision support]
+```
 
 ---
 
@@ -60,79 +114,23 @@ In short, the project helps answer questions such as:
 - Recharts
 - TanStack Query
 - Axios
-- Supabase client
 - Framer Motion
 
 ### Backend
 - Python
 - FastAPI
-- PostgreSQL / Supabase
+- Pydantic
 - Playwright
 - BeautifulSoup
 - lxml
+- PostgreSQL / Supabase
 - Ollama
-- Pydantic
-- Docker
 
-### Infrastructure
+### DevOps / deployment
 - Docker Compose
-- Supabase
-- Ollama
-- Vercel for frontend hosting
-- Render for backend hosting
-
----
-
-## System architecture
-
-The project is structured as a full-stack AI business intelligence application with separated frontend, backend, and data services.
-
-```text
-┌──────────────────────┐
-│      User / Browser  │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│   React + Vite UI    │
-│   Dashboard / Reports │
-└──────────┬───────────┘
-           │ HTTP / API calls
-           ▼
-┌──────────────────────┐
-│   FastAPI Backend    │
-│   Routes + Services  │
-│   AI + Analytics     │
-└──────────┬───────────┘
-           │
-           ├──────────────► Scraping / Data Collection
-           │
-           ├──────────────► Analytics / AI Agents
-           │
-           ├──────────────► Supabase / PostgreSQL
-           │
-           └──────────────► Reports / Recommendations
-```
-
----
-
-## Project flow diagram
-
-```mermaid
-flowchart TD
-    A[User enters product query] --> B[Frontend Dashboard]
-    B --> C[FastAPI Backend]
-    C --> D[Scraper / Data Collection Layer]
-    D --> E[Data Cleaning and Processing]
-    E --> F[Supabase PostgreSQL]
-    E --> G[Analytics + AI Agents]
-    G --> H[Profit Optimization]
-    G --> I[Marketing Intelligence]
-    H --> J[Dashboard Insights]
-    I --> J
-    J --> K[Reports and Recommendations]
-    K --> L[User View / Downloadable Outputs]
-```
+- Vercel
+- Render
+- GitHub Actions friendly structure
 
 ---
 
@@ -141,7 +139,6 @@ flowchart TD
 ```bash
 fyp_Strategai/
 ├── .env.example
-├── .gitignore
 ├── docker-compose.yml
 ├── README.md
 ├── QUICK_SETUP.md
@@ -187,21 +184,32 @@ fyp_Strategai/
 
 ---
 
+## What the app does in practice
+
+StrategAI turns a simple product idea into business insight. A user can search for a product, let the system gather relevant data, analyze price ranges and supplier conditions, and receive strategic recommendations that support better commercial decisions.
+
+It is useful for:
+- sourcing evaluation
+- market research
+- profit potential analysis
+- competitor benchmarking
+- product prioritization
+- decision support for digital commerce teams
+
+---
+
 ## Environment requirements
 
-### Software required
+### Required software
 - Python 3.10+
 - Node.js 18+
 - npm
-- Docker and Docker Compose
+- Docker + Docker Compose
 - Git
 - Supabase project access
-- Ollama instance or reachable LLM endpoint
-- Modern browser
+- Ollama endpoint or local LLM runtime
 
-### Required environment variables
-
-Copy the example files before running the project:
+### Setup env files
 
 ```bash
 cp .env.example .env
@@ -209,56 +217,28 @@ cp backend/.env.example backend/.env
 cp frontend/salik-frontend/.env.example frontend/salik-frontend/.env
 ```
 
-#### Root `.env`
-- `SUPABASE_URL`
-- `SUPABASE_KEY`
-- `SUPABASE_SERVICE_KEY`
-- `SUPABASE_DB_URL`
-- `APIFY_API_TOKEN`
-- `APIFY_API_KEY`
-- `SCRAPERAPI_KEY`
-- `OLLAMA_BASE_URL`
-- `OLLAMA_MODEL`
-- `PORT`
-- `LOG_LEVEL`
-- `CORS_ORIGINS`
-- `VITE_API_BASE_URL`
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-
-#### Backend `.env`
-- `SUPABASE_URL`
-- `SUPABASE_KEY`
-- `SUPABASE_SERVICE_KEY`
-- `SUPABASE_DB_URL`
-- `OLLAMA_BASE_URL`
-- `OLLAMA_MODEL`
-- `PORT`
-- `LOG_LEVEL`
-- `CORS_ORIGINS`
-
-#### Frontend `.env`
-- `VITE_API_BASE_URL`
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
+Required values include:
+- Supabase URL and keys
+- PostgreSQL connection string
+- Ollama base URL and model
+- API credentials for scraping services
+- Frontend and backend CORS/origin config
 
 ---
 
-## How to run the project
+## Run locally
 
-### Option 1: Run with Docker Compose
-
-This is the easiest and recommended option for local development:
+### Option 1: Full stack with Docker
 
 ```bash
 docker compose up --build
 ```
 
-Once started, open:
+Open:
 - Frontend: http://localhost:5173
 - Backend: http://localhost:8001
 
-Health checks:
+Check health:
 
 ```bash
 curl http://localhost:8001/health
@@ -266,9 +246,7 @@ curl http://localhost:8001/readiness
 curl http://localhost:8001/liveness
 ```
 
----
-
-### Option 2: Run the backend manually
+### Option 2: Backend only
 
 ```bash
 cd backend
@@ -278,15 +256,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
-Backend URL:
-
-```bash
-http://localhost:8001
-```
-
----
-
-### Option 3: Run the frontend manually
+### Option 3: Frontend only
 
 ```bash
 cd frontend/salik-frontend
@@ -294,54 +264,52 @@ npm install
 npm run dev
 ```
 
-Frontend URL:
-
-```bash
-http://localhost:5173
-```
-
 ---
 
-## Production deployment targets
+## Deployment targets
 
-This repository is structured for deployment in production as follows:
 - Frontend: Vercel
 - Backend: Render
 - Database: Supabase PostgreSQL
-- LLM runtime: Ollama
+- AI runtime: Ollama
 
 ---
 
-## Application behavior
+## Why this is a strong portfolio project
 
-StrategAI combines multiple steps into an end-to-end decision workflow:
+This project demonstrates:
+- full-stack product development
+- Python + JavaScript ecosystem integration
+- AI-powered workflow design
+- database and API architecture
+- deployment readiness
+- real-world business problem solving
+- practical product thinking beyond a simple demo
 
-1. Search for a product or supply opportunity.
-2. Collect supplier, market, and retail pricing information.
-3. Clean and structure raw data for analysis.
-4. Run AI and analytics models to detect revenue and margin opportunities.
-5. Surface recommendations through the dashboard.
-6. Generate reporting outputs for business users.
-
-This makes it useful for product evaluation, sourcing analysis, and commercial decision support.
+It is a strong example of a capstone or portfolio-grade project because it combines product design, backend engineering, AI implementation, and deployment strategy in one cohesive system.
 
 ---
 
-## Notes
+## Future directions
 
-- The project uses Ollama for local LLM inference and analysis tasks.
-- Supabase handles database storage and related application data.
-- The backend exposes modular API routes for scraper, analytics, marketing, health, and reports.
-- The frontend is organized as a dashboard-style app with multiple user flows and protected pages.
+- improved analytics accuracy
+- user personalization
+- richer visual dashboards
+- broader marketplace support
+- exportable strategy reports
+- automated periodic data refreshes
+- multi-product portfolio analysis
 
 ---
 
 ## Summary
 
-StrategAI is a full-stack AI-powered e-commerce intelligence system that converts product and market data into practical business decisions. By combining scraping, analysis, AI recommendations, and reporting, it helps users understand supplier opportunities, customer pricing trends, and profitability in a streamlined workflow.
+StrategAI is more than a web app; it is a decision-support platform for e-commerce intelligence. It brings together data collection, AI analysis, strategic recommendations, and a polished frontend into a single system that helps users move from raw product information to actionable business insight.
 
 ---
 
-## Project status
-
-This repository is a research and product-focused full-stack application designed for academic use, business experimentation, and extension into a production-ready commercial platform.
+<p align="center">
+  <a href="https://github.com/hudarizwan/fyp_Strategai">
+    <img src="https://img.shields.io/badge/View%20Repository-181717?style=for-the-badge&logo=github" alt="GitHub" />
+  </a>
+</p>
